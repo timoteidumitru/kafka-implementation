@@ -2,17 +2,17 @@ HELP.md
 
 ### Target output ###
 api-gateway/target/
-server-registry/target/
+service-registry/target/
 order-api/target/
-payment-server/target/
+payment-api/target/
 server-identity/target/
 
 ### IntelliJ IDEA ###
 .idea/
 api-gateway/.idea/
-server-registry/.idea/
+service-registry/.idea/
 order-api/.idea/
-payment-server/.idea/
+payment-api/.idea/
 server-identity/.idea/
 
 api-gateway/*.iws
@@ -24,9 +24,9 @@ server-registry/*.ipr
 order-api/*.iws
 order-api/*.iml
 order-api/*.ipr
-payment-server/*.iws
-payment-server/*.iml
-payment-server/*.ipr
+payment-api/*.iws
+payment-api/*.iml
+payment-api/*.ipr
 server-identity/*.iws
 server-identity/*.iml
 server-identity/*.ipr
