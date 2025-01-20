@@ -1,7 +1,9 @@
 server:
-  port: 9090
+  port: 8085
 
 spring:
+  application:
+    name: order-service
   jpa:
     hibernate:
       ddl-auto: update
@@ -13,8 +15,6 @@ spring:
     username: root
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
-  application:
-    name:  order-service
 
 eureka:
   client:
