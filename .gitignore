@@ -4,6 +4,7 @@ service-registry/target/
 order-api/target/
 payment-api/target/
 notification-api/target/
+kafka-setup/kafka-3.9
 
 ### IntelliJ IDEA ###
 .idea/
@@ -12,6 +13,7 @@ service-registry/.idea/
 order-api/.idea/
 payment-api/.idea/
 notification-api/.idea/
+kafka-setup/start-kafka.sh
 
 api-gateway/*.iws
 api-gateway/*.iml
