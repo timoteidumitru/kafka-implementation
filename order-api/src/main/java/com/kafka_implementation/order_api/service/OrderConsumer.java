@@ -4,7 +4,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 @Service
-public class OrderEventListener {
+public class OrderConsumer {
 
     @KafkaListener(topics = "payment-result-topic", groupId = "order-service")
     public void consumePaymentEvent(String message) {

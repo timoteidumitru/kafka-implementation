@@ -1,13 +1,12 @@
-server:
-  port: 8761                            # Default port for Eureka Server
-
 spring:
   application:
-    name: service-registry
-
+    name: eureka-server
+server:
+  port: 8761
 eureka:
   client:
-    register-with-eureka: false       # The server does not register itself
-    fetch-registry: false             # The server does not fetch registry
+    register-with-eureka: false
+    fetch-registry: false
   server:
-    enable-self-preservation: false   # Optional, disable self-preservation in development
+    enable-self-preservation: false
+    eviction-interval-timer-in-ms: 5000

@@ -3,16 +3,23 @@ package com.kafka_implementation.inventory_api.service;
 import com.kafka_implementation.inventory_api.entity.Inventory;
 import com.kafka_implementation.inventory_api.repository.InventoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
 
 @Service
-public class InventoryService {
+public class InventoryConsumer {
 
     @Autowired
     private InventoryRepository inventoryRepository;
+
+    @KafkaListener(topics = "order-topic", groupId = "inventory-service")
+    public void consumeOrderEvent(String message) {
+        System.out.println("Order Event Received for Inventory Check: " + message);
+        // Adjust inventory or validate stock
+    }
 
     public boolean isProductAvailable(String productCode, int quantity) {
         Optional<Inventory> inventory = inventoryRepository.findByProductCode(productCode);

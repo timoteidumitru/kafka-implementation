@@ -3,11 +3,28 @@ server:
 spring:
   application:
     name: notification-service
-eureka:
-  client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-kafka:
-  bootstrap-servers: localhost:9092
-  topic:
-    payment-result: payment-result-topic
+
+  kafka:
+    consumer:
+      group-id: notification-service
+
+  eureka:
+    client:
+      service-url:
+        defaultZone: http://localhost:8761/eureka/
+    instance:
+      prefer-ip-address: true
+      instance-id: ${spring.application.name}:${spring.application.instance_id:${random.value}}
+
+
+#eureka:
+#  client:
+#    service-url:
+#      defaultZone: http://localhost:8761/eureka/
+#    fetch-registry: true
+#    register-with-eureka: true
+#
+#kafka:
+#  bootstrap-servers: localhost:9092
+#  topic:
+#    payment-result: payment-result-topic
