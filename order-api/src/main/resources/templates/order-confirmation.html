@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Order Confirmation</title>
+    <link rel="stylesheet" th:href="@{/css/orders.css}">
+</head>
+
+<body>
+<div class="container">
+    <h1>Order Confirmation</h1>
+    <p class="message">Order created successfully!</p>
+    <table>
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Price</th>
+            <th>Category</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td th:text="${order.id}"></td>
+            <td th:text="${order.name}"></td>
+            <td th:text="${order.description}"></td>
+            <td th:text="${order.price}"></td>
+            <td th:text="${order.category}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <a th:href="@{/orders}">Back to Orders</a>
+</div>
+</body>
+
+</html>

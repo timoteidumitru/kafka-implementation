@@ -9,19 +9,19 @@ spring:
     gateway:
       routes:
         - id: order-service
-          uri: lb://order-service
+          uri: http://localhost:8081 #lb://order-service
           predicates:
             - Path=/orders/**
         - id: payment-service
-          uri: lb://payment-service
+          uri: http://localhost:8082 # lb://payment-service
           predicates:
             - Path=/payments/**
         - id: notification-service
-          uri: lb://notification-service
+          uri: http://localhost:8083 # lb://notification-service
           predicates:
             - Path=/notifications/**
         - id: inventory-service
-          uri: lb://inventory-service
+          uri: http://localhost:8084 # lb://inventory-service
           predicates:
             - Path=/inventory/**
       discovery:
@@ -32,5 +32,10 @@ spring:
     client:
       service-url:
         defaultZone: http://localhost:8761/eureka/
-      fetch-registry: true
       register-with-eureka: true
+      fetch-registry: true
+
+  logging:
+    level:
+      org.springframework.cloud.loadbalancer: DEBUG
+

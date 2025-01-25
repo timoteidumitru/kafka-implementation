@@ -4,7 +4,6 @@ server:
 spring:
   application:
     name: order-service
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -32,7 +31,10 @@ spring:
     client:
       service-url:
         defaultZone: http://localhost:8761/eureka/
-    instance:
-      prefer-ip-address: true
-      instance-id: ${spring.application.name}:${spring.application.instance_id:${random.value}}
+      register-with-eureka: true
+      fetch-registry: true
+
+logging:
+  level:
+    org.springframework.cloud.loadbalancer: DEBUG
 
