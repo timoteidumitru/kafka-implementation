@@ -19,7 +19,7 @@ public class Order {
     private Long userId;
     private String status;
     private String name;
-    private Double price;
     private String description;
+    private Double price;
     private String category;
 }
