@@ -1,4 +1,4 @@
-package kafka_implementation.order_api;
+package kafka_implementation.order_api.controller;
 
 import com.kafka_implementation.order_api.OrderApiApplication;
 import com.kafka_implementation.order_api.entity.Order;
@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(classes = OrderApiApplication.class)
 @Testcontainers
 @AutoConfigureMockMvc
-public class OrderProducerIntegrationTest {
+public class OrderControllerTest {
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"));

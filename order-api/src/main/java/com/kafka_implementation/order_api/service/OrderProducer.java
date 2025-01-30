@@ -1,4 +1,4 @@
-package com.kafka_implementation.order_api.config;
+package com.kafka_implementation.order_api.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
