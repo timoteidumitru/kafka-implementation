@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(classes = OrderApiApplication.class)
 @Testcontainers
 @AutoConfigureMockMvc
-public class OrderControllerTest {
+public class TestOrderController {
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"));
