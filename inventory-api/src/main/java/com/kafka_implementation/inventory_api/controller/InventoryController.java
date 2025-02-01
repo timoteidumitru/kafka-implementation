@@ -1,50 +1,62 @@
 package com.kafka_implementation.inventory_api.controller;
 
-import com.kafka_implementation.inventory_api.service.InventoryConsumer;
+import com.kafka_implementation.inventory_api.entity.Product;
+import com.kafka_implementation.inventory_api.service.InventoryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/inventory")
 public class InventoryController {
 
     @Autowired
-    private InventoryConsumer inventoryConsumer;
+    private final InventoryService inventoryService;
 
-    @GetMapping("/check")
-    public ResponseEntity<String> checkAvailability(
-            @RequestParam String productCode,
-            @RequestParam int quantity) {
-        boolean isAvailable = inventoryConsumer.isProductAvailable(productCode, quantity);
-        if (isAvailable) {
-            return ResponseEntity.ok("Product is available.");
-        } else {
-            return ResponseEntity.status(404).body("Product is not available.");
-        }
+    public InventoryController(InventoryService inventoryService) {
+        this.inventoryService = inventoryService;
     }
 
-    @PostMapping("/reserve")
-    public ResponseEntity<String> reserveProduct(
-            @RequestParam String productCode,
-            @RequestParam int quantity) {
+    @PostMapping("/add-product")
+    public ResponseEntity<Product> addProduct(@RequestBody Product product) {
         try {
-            inventoryConsumer.reserveProduct(productCode, quantity);
-            return ResponseEntity.ok("Product reserved successfully.");
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(400).body(e.getMessage());
+            // Call the service to add the product to the inventory
+            Product addedProduct = inventoryService.addProduct(product);
+
+            if (addedProduct == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            }
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(addedProduct); // Return the created product with status 201
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
 
-    @PostMapping("/release")
-    public ResponseEntity<String> releaseProduct(
+    @PutMapping("/update-stock")
+    public ResponseEntity<?> updateStock(
             @RequestParam String productCode,
-            @RequestParam int quantity) {
+            @RequestParam Double quantity) {
+
         try {
-            inventoryConsumer.releaseProduct(productCode, quantity);
-            return ResponseEntity.ok("Product released successfully.");
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(400).body(e.getMessage());
+            Product updatedProduct = inventoryService.updateStock(productCode, quantity);
+
+            if (updatedProduct == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            return ResponseEntity.ok(updatedProduct);
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An error occurred: " + ex.getMessage());
         }
     }
+
+    @GetMapping()
+    public ResponseEntity<Optional<Double>> getStock(@RequestParam Long id) {
+        return ResponseEntity.ok(inventoryService.getStock(id));
+    }
+
 }

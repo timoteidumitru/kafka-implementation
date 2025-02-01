@@ -8,15 +8,19 @@ import lombok.NoArgsConstructor;
 @Entity
 @AllArgsConstructor
 @NoArgsConstructor
-public class Inventory {
+public class Product {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private int availableQuantity;
-    @Column(unique = true, nullable = false)
+    @Column(unique = true)
     private String productCode;
+
+    private String name;
+    private String description;
+    private Double price;
+    private Double stock;
 
     public Long getId() {
         return id;
@@ -24,14 +28,6 @@ public class Inventory {
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public int getAvailableQuantity() {
-        return availableQuantity;
-    }
-
-    public void setAvailableQuantity(int availableQuantity) {
-        this.availableQuantity = availableQuantity;
     }
 
     public String getProductCode() {
@@ -42,6 +38,30 @@ public class Inventory {
         this.productCode = productCode;
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Double getPrice() {
+        return price;
+    }
+
+    public void setPrice(Double price) {
+        this.price = price;
+    }
+
     public Double getStock() {
         return stock;
     }
@@ -49,7 +69,5 @@ public class Inventory {
     public void setStock(Double stock) {
         this.stock = stock;
     }
-
-    private Double stock;
-
 }
+
