@@ -1,49 +1,53 @@
 package com.kafka_implementation.order_api.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kafka_implementation.order_api.entity.Order;
+import com.kafka_implementation.order_api.repository.OrderRepository;
+import com.kafka_implementation.shared.dto.StockUpdateEvent;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
 public class OrderConsumer {
 
-    private static final Logger logger = LoggerFactory.getLogger(OrderConsumer.class);
+    private final OrderRepository orderRepository;
+    private final ObjectMapper objectMapper;
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private static final List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> receivedMessages = new CopyOnWriteArrayList<>();
 
-    @Value("${notification.topic.name:notification-topic}")
-    private String notificationTopic;
-
-    public OrderConsumer(KafkaTemplate<String, String> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
+    public OrderConsumer(OrderRepository orderRepository, ObjectMapper objectMapper) {
+        this.orderRepository = orderRepository;
+        this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(topics = "payment-result-topic", groupId = "order-service")
-    public void consumePaymentEvent(String message) {
-        logger.info("Payment Event Received: {}", message);
+    @KafkaListener(topics = "inventory.stock.update", groupId = "order-service")
+    public void handleStockUpdate(ConsumerRecord<String, String> record) {
+        try {
+            StockUpdateEvent event = objectMapper.readValue(record.value(), StockUpdateEvent.class);
 
-        synchronized (receivedMessages) {
-            receivedMessages.add(message);
+            Optional<Order> optionalOrder = orderRepository.findById(event.getOrderId());
+            if (optionalOrder.isPresent()) {
+                Order order = optionalOrder.get();
+                order.setStatus(event.isApproved() ? "APPROVED" : "REJECTED");
+                orderRepository.save(order);
+            }
+
+            // Store message for testing
+            receivedMessages.add(record.value());
+
+        } catch (Exception e) {
+            System.err.println("❌ Failed to process stock update: " + e.getMessage());
         }
-
-        String notificationMessage = "Order update: " + message;
-        kafkaTemplate.send(notificationTopic, notificationMessage);
-        logger.info("Notification Event Sent: {}", notificationMessage);
     }
 
+    // Method for test case to fetch received messages
     public List<String> getReceivedMessages() {
-        synchronized (receivedMessages) {
-            return new ArrayList<>(receivedMessages);
-        }
+        return new ArrayList<>(receivedMessages);
     }
 }
-

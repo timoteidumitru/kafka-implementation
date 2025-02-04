@@ -1,18 +1,20 @@
 ### Target output ###
-api-gateway/target/
 service-registry/target/
 order-api/target/
 payment-api/target/
 notification-api/target/
+inventory-api/target/
+api-gateway/target/
 .gitignore
 
 ### IntelliJ IDEA ###
 .idea/
-api-gateway/.idea/
 service-registry/.idea/
 order-api/.idea/
 payment-api/.idea/
 notification-api/.idea/
+inventory-api/.idea/
+api-gateway/.idea/
 
 api-gateway/*.iws
 api-gateway/*.iml
@@ -29,3 +31,6 @@ payment-api/*.ipr
 notification-api/*.iws
 notification-api/*.iml
 notification-api/*.ipr
+inventory-api/*.iws
+inventory-api/*.iml
+inventory-api/*.ipr

@@ -22,4 +22,7 @@ public class Order {
     private String description;
     private Double price;
     private String category;
+
+    private String productCode;
+    private int quantity;
 }

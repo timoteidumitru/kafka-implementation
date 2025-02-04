@@ -18,4 +18,3 @@ eureka:
   logging:
     level:
       com.netflix.eureka: DEBUG           # Optional, useful for debugging
-

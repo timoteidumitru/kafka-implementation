@@ -38,9 +38,10 @@ public class OrderController {
         order.setStatus("PENDING");
         Order savedOrder = orderRepository.save(order);
 
-        orderProducer.sendOrderEvent(savedOrder.getId());
+        // Send OrderPlacedEvent to Kafka
+        orderProducer.sendOrderEvent(savedOrder);
 
-        model.addAttribute("message", "Order created successfully!");
+        model.addAttribute("message", "Order placed successfully!");
         model.addAttribute("order", savedOrder);
         return "order-confirmation";
     }
