@@ -1,0 +1,105 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: kafka_orders_db
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3307:3307"
+    networks:
+      - kafka-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      retries: 5
+
+  service-registry:
+    build: ./service-registry
+    container_name: service-registry
+    ports:
+      - "8761:8761"
+    networks:
+      - kafka-network
+    environment:
+      SPRING_APPLICATION_NAME: eureka-server
+      SPRING_CLOUD_EUREKA_SERVER_URL: http://localhost:8761/eureka/
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - order-api
+      - payment-api
+      - notification-api
+      - inventory-api
+      - service-registry
+    environment:
+      SPRING_CLOUD_EUREKA_SERVER: eureka-server
+      SPRING_CLOUD_EUREKA_ENABLED: true
+    networks:
+      - kafka-network
+
+  order-api:
+    build: ./order-api
+    container_name: order-api
+    ports:
+      - "8081:8081"
+    depends_on:
+      - service-registry
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_orders_db
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+    networks:
+      - kafka-network
+
+  payment-api:
+    build: ./payment-api
+    container_name: payment-api
+    ports:
+      - "8082:8082"
+    depends_on:
+      - service-registry
+      - order-api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_payments_db
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+    networks:
+      - kafka-network
+
+  notification-api:
+    build: ./notification-api
+    container_name: notification-api
+    ports:
+      - "8083:8083"
+    depends_on:
+      - service-registry
+    networks:
+      - kafka-network
+
+  inventory-api:
+    build: ./inventory-api
+    container_name: inventory-api
+    ports:
+      - "8084:8084"
+    depends_on:
+      - service-registry
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_inventory_db
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+    networks:
+      - kafka-network
+
+networks:
+  kafka-network:
+    driver: bridge
