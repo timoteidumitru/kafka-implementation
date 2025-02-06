@@ -1,0 +1,26 @@
+server:
+  port: 8761
+
+spring:
+  profiles:
+    active: docker
+  application:
+    name: eureka-server
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+
+eureka:
+  client:
+    fetch-registry: false
+    register-with-eureka: false
+  server:
+    enable-self-preservation: false
+    eviction-interval-timer-in-ms: 5000
+  instance:
+    hostname: eureka-server
+    port: 8761
+
+  logging:
+    level:
+      com.netflix.eureka: DEBUG

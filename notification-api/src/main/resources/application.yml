@@ -1,17 +1,23 @@
 server:
   port: 8083
+
 spring:
+  profiles:
+    active: docker
   application:
-    name: notification-service
+    name: notification-api
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 
-  kafka:
-    consumer:
-      group-id: notification-service
+kafka:
+  bootstrap-servers: kafka:9092
+  consumer:
+    group-id: notification-service
 
-  eureka:
-    client:
-      service-url:
-        defaultZone: http://localhost:8761/eureka/
-      register-with-eureka: true
-      fetch-registry: true
-
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://eureka-server:8761/eureka
+  application:
+    name: notification-api

@@ -2,8 +2,10 @@ server:
   port: 8081
 
 spring:
+  profiles:
+    active: docker
   application:
-    name: order-service
+    name: order-api
   jpa:
     hibernate:
       ddl-auto: update
@@ -11,13 +13,13 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   datasource:
-    url: jdbc:mysql://localhost:3306/kafka_order_db
-    username: root
+    url: jdbc:mysql://mysql:3306/kafka_order_db
+    username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: kafka:9092
     consumer:
       group-id: order-service
       auto-offset-reset: earliest
@@ -27,12 +29,12 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
-  eureka:
-    client:
-      service-url:
-        defaultZone: http://localhost:8761/eureka/
-      register-with-eureka: true
-      fetch-registry: true
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://eureka-server:8761/eureka
+  application:
+    name: order-api
 
 logging:
   level:

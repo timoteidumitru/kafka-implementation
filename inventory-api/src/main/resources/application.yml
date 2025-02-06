@@ -2,9 +2,10 @@ server:
   port: 8084
 
 spring:
+  profiles:
+    active: docker
   application:
     name: inventory-service
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -12,20 +13,19 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   datasource:
-    url: jdbc:mysql://localhost:3306/kafka_inventory_db
-    username: root
+    url: jdbc:mysql://mysql:3306/kafka_inventory_db
+    username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  kafka:
-    consumer:
-      group-id: inventory-service
+kafka:
+  bootstrap-servers: kafka:9092
+  consumer:
+    group-id: inventory-service
 
-  eureka:
-    client:
-      service-url:
-        defaultZone: http://localhost:8761/eureka/
-    instance:
-      instance-id: order-service:${server.port}
-      prefer-ip-address: false
-      hostname: localhost
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://eureka-server:8761/eureka
+  application:
+    name: inventory-api

@@ -6,32 +6,30 @@ services:
     container_name: mysql-db
     restart: always
     environment:
-      MYSQL_DATABASE: kafka_orders_db
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
     ports:
-      - "3307:3307"
+      - "3306:3306"
     networks:
-      - kafka-network
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      interval: 10s
-      retries: 5
+      - microservices-kafka-docker
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
-  service-registry:
-    build: ./service-registry
-    container_name: service-registry
+  eureka-server:
+    build: ./eureka-server
+    image: eureka-server:latest
+    container_name: eureka-server
     ports:
       - "8761:8761"
     networks:
-      - kafka-network
+      - microservices-kafka-docker
     environment:
-      SPRING_APPLICATION_NAME: eureka-server
-      SPRING_CLOUD_EUREKA_SERVER_URL: http://localhost:8761/eureka/
+      - SPRING_PROFILES_ACTIVE=docker
 
   api-gateway:
     build: ./api-gateway
+    image: api-gateway:latest
     container_name: api-gateway
     ports:
       - "8080:8080"
@@ -40,12 +38,12 @@ services:
       - payment-api
       - notification-api
       - inventory-api
-      - service-registry
-    environment:
-      SPRING_CLOUD_EUREKA_SERVER: eureka-server
-      SPRING_CLOUD_EUREKA_ENABLED: true
+      - eureka-server
     networks:
-      - kafka-network
+      - microservices-kafka-docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_SERVER=http://eureka-server:8761/eureka
 
   order-api:
     build: ./order-api
@@ -53,13 +51,16 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - service-registry
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_orders_db
-      SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: password
+      - eureka-server
     networks:
-      - kafka-network
+      - microservices-kafka-docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_SERVER=http://eureka-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/kafka_order_db
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=admin
+
 
   payment-api:
     build: ./payment-api
@@ -67,14 +68,16 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - service-registry
+      - eureka-server
       - order-api
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_payments_db
-      SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: password
     networks:
-      - kafka-network
+      - microservices-kafka-docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_SERVER=http://eureka-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/kafka_payments_db
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=admin
 
   notification-api:
     build: ./notification-api
@@ -82,9 +85,12 @@ services:
     ports:
       - "8083:8083"
     depends_on:
-      - service-registry
+      - eureka-server
     networks:
-      - kafka-network
+      - microservices-kafka-docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_SERVER=http://eureka-server:8761/eureka
 
   inventory-api:
     build: ./inventory-api
@@ -92,14 +98,16 @@ services:
     ports:
       - "8084:8084"
     depends_on:
-      - service-registry
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/kafka_inventory_db
-      SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: password
+      - eureka-server
     networks:
-      - kafka-network
+      - microservices-kafka-docker
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - EUREKA_SERVER=http://eureka-server:8761/eureka
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/kafka_inventory_db
+      - SPRING_DATASOURCE_USERNAME=admin
+      - SPRING_DATASOURCE_PASSWORD=admin
 
 networks:
-  kafka-network:
+  microservices-kafka-docker:
     driver: bridge

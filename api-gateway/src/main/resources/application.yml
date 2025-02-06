@@ -2,40 +2,36 @@ server:
   port: 8080
 
 spring:
+  profiles:
+    active: docker
   application:
-    name:  api-gateway
+    name: api-gateway
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 
-  cloud:
-    gateway:
-      routes:
-        - id: order-service
-          uri: http://localhost:8081 #lb://order-service
-          predicates:
-            - Path=/orders/**
-        - id: payment-service
-          uri: http://localhost:8082 # lb://payment-service
-          predicates:
-            - Path=/payments/**
-        - id: notification-service
-          uri: http://localhost:8083 # lb://notification-service
-          predicates:
-            - Path=/notifications/**
-        - id: inventory-service
-          uri: http://localhost:8084 # lb://inventory-service
-          predicates:
-            - Path=/inventory/**
-      discovery:
-        locator:
-          enabled: true
-
-  eureka:
-    client:
-      service-url:
-        defaultZone: http://localhost:8761/eureka/
-      register-with-eureka: true
-      fetch-registry: true
-
-  logging:
-    level:
-      org.springframework.cloud.loadbalancer: DEBUG
-
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://eureka-server:8761/eureka
+  gateway:
+    discovery:
+      locator:
+        enabled: true
+    routes:
+      - id: order-api
+        uri: lb://order-api                 #http://order-api:8081
+        predicates:
+          - Path=/orders/**
+      - id: payment-api
+        uri: lb://payment-api               #http://payment-api:8082
+        predicates:
+          - Path=/payments/**
+      - id: notification-api
+        uri: lb://notification-api          #http://notification-api:8083
+        predicates:
+          - Path=/notifications/**
+      - id: inventory-api                   #http://inventory-api:8084
+        uri: lb://inventory-api
+        predicates:
+          - Path=/inventory/**
