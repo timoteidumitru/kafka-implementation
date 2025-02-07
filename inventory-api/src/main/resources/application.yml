@@ -13,7 +13,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   datasource:
-    url: jdbc:mysql://mysql:3306/kafka_inventory_db
+    url: jdbc:mysql://mysql-db:3306/kafka_inventory_db
     username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver

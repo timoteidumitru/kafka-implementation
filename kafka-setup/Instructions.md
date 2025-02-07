@@ -44,18 +44,19 @@ This guide explains how to start Kafka and Zookeeper using Docker Compose.
 
    Kafka will be accessible on `localhost:9092`. You can now connect to Kafka using your desired Kafka client.
 
-### Commands for kafka topics creation
+
+
+### Command for topics management(inside container)
 
 ```dockerfile
-+ Order topic
-kafka-topics.sh --create --topic order-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
++ Create a topic in Kafka
+kafka-topics --create --topic notification.topic --bootstrap-server kafka:9092 --partitions 3 --replication-factor 1
 
-+ Payment Topic
-kafka-topics.sh --create --topic payment-result-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
++ Delete a topic in Kafka
+kafka-topics --delete --topic <topic-name> --bootstrap-server kafka:9092
 
-+ Inventory topic
-kafka-topics.sh --create --topic inventory-update-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
-
++ List all topics inside a container
+kafka-topics --list --bootstrap-server kafka:9092
 ```
 
 ## Stopping the Services

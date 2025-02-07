@@ -4,25 +4,40 @@ services:
     container_name: zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
     ports:
       - "2181:2181"
     networks:
       - kafka-network
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper
 
   kafka:
     image: confluentinc/cp-kafka:latest
     container_name: kafka
     ports:
       - "9092:9092"
+    depends_on:
+      - zookeeper
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
       - kafka-network
+    volumes:
+      - kafka-logs:/var/lib/kafka/data
 
 networks:
   kafka-network:
     driver: bridge
+    external: true
+
+volumes:
+  zookeeper-data:
+  kafka-logs:
