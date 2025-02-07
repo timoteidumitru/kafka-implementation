@@ -7,7 +7,7 @@ This document provides an overview of Kafka setup, commands for starting Kafka a
 ## Kafka Setup and Configuration
 
 ### Prerequisites
-- **Java 8+** installed.
+- **Java 11+** installed.
 - **Kafka binaries** downloaded (e.g., [Apache Kafka](https://kafka.apache.org/downloads)).
 - Update the `server.properties` file for Kafka and `zookeeper.properties` for Zookeeper as required.
 
