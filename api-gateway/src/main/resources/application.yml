@@ -9,29 +9,37 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      -
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lowerCaseServiceId: true
+      routes:
+        - id: order-api
+          uri: lb://order-api
+          predicates:
+            - Path=/orders/**
+        - id: payment-api
+          uri: lb://payment-api
+          predicates:
+            - Path=/payments/**
+        - id: notification-api
+          uri: lb://notification-api
+          predicates:
+            - Path=/notifications/**
+        - id: inventory-api
+          uri: lb://inventory-api
+          predicates:
+            - Path=/inventory/**
 
 eureka:
+  instance:
+    hostname: api-gateway
   client:
+    registerWithEureka: true
+    fetchRegistry: true
     serviceUrl:
-      defaultZone: http://eureka-server:8761/eureka
-  gateway:
-    discovery:
-      locator:
-        enabled: true
-    routes:
-      - id: order-api
-        uri: lb://order-api                 #http://order-api:8081
-        predicates:
-          - Path=/orders/**
-      - id: payment-api
-        uri: lb://payment-api               #http://payment-api:8082
-        predicates:
-          - Path=/payments/**
-      - id: notification-api
-        uri: lb://notification-api          #http://notification-api:8083
-        predicates:
-          - Path=/notifications/**
-      - id: inventory-api                   #http://inventory-api:8084
-        uri: lb://inventory-api
-        predicates:
-          - Path=/inventory/**
+      defaultZone: ${EUREKA_SERVER:http://eureka-server:8761/eureka}
+
