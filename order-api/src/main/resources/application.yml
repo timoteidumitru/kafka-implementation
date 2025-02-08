@@ -11,13 +11,15 @@ spring:
       ddl-auto: update
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
+        dialect: org.hibernate.dialect.MySQL8Dialect
   datasource:
     url: jdbc:mysql://mysql-db:3306/kafka_order_db
     username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
-
+    hikari:
+      initialization-fail-timeout: 60000
+      connection-timeout: 30000
   kafka:
     bootstrap-servers: kafka:9092
     consumer:
@@ -35,8 +37,3 @@ eureka:
       defaultZone: http://eureka-server:8761/eureka
   application:
     name: order-api
-
-logging:
-  level:
-    org.springframework.cloud.loadbalancer: DEBUG
-

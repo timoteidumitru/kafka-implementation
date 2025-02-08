@@ -17,11 +17,13 @@ spring:
     username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
-
-kafka:
-  bootstrap-servers: kafka:9092
-  consumer:
-    group-id: inventory-service
+    hikari:
+      initialization-fail-timeout: 60000
+      connection-timeout: 30000
+  kafka:
+    bootstrap-servers: kafka:9092
+    consumer:
+      group-id: inventory-service
 
 eureka:
   client:

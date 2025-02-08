@@ -1,11 +1,12 @@
 ### Target output ###
+.gitignore
 eureka-server/target/
 order-api/target/
 payment-api/target/
 notification-api/target/
 inventory-api/target/
 api-gateway/target/
-.gitignore
+shared-models/target/
 
 ### IntelliJ IDEA ###
 .idea/
@@ -15,6 +16,7 @@ payment-api/.idea/
 notification-api/.idea/
 inventory-api/.idea/
 api-gateway/.idea/
+shared-models/.idea
 
 eureka-server/*.iws
 eureka-server/*.iml
@@ -34,3 +36,8 @@ notification-api/*.ipr
 inventory-api/*.iws
 inventory-api/*.iml
 inventory-api/*.ipr
+shared-models/*.iws
+shared-models/*.iml
+shared-models/*.ipr
+
+.gitignore
