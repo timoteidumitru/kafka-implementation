@@ -1,15 +1,16 @@
-package com.kafka_implementation.inventory_api.dto;
+package com.kafka_implementation.shared.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+@Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Data
-public class RequestUpdate {
+public class StockUpdateRequest {
 
+    private Long orderId;
     private String productCode;
-    private Integer quantity;
+    private int quantity;
 
 }

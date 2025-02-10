@@ -1,14 +1,17 @@
 package com.kafka_implementation.shared.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.Setter;
 
-@Getter
-@Setter
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
 @AllArgsConstructor
+@NoArgsConstructor
 public class OrderPlacedEvent {
+
     private Long orderId;
     private String productCode;
     private int quantity;
+
 }

@@ -1,8 +1,8 @@
 package com.kafka_implementation.inventory_api.controller;
 
-import com.kafka_implementation.inventory_api.dto.RequestUpdate;
 import com.kafka_implementation.inventory_api.entity.Product;
 import com.kafka_implementation.inventory_api.service.InventoryService;
+import com.kafka_implementation.shared.dto.StockUpdateRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.Optional;
@@ -19,16 +19,16 @@ public class InventoryController {
 
     @PostMapping("/add-product")
     public ResponseEntity<Product> addProduct(@RequestBody Product product) {
-        return ResponseEntity.ok(inventoryService.addOrUpdateProduct(product));
+        return ResponseEntity.ok(inventoryService.addProduct(product));
     }
 
     @PutMapping("/update-stock")
-    public ResponseEntity<?> updateStock(@RequestBody RequestUpdate product) {
-        return ResponseEntity.ok(inventoryService.updateStock(product));
+    public ResponseEntity<?> updateStock(@RequestBody StockUpdateRequest request) {
+        return ResponseEntity.ok(inventoryService.updateStock(request));
     }
 
     @GetMapping("/stock")
-    public ResponseEntity<Optional<Integer>> getStock(@RequestParam Long id) {
-        return ResponseEntity.ok(inventoryService.getStock(id));
+    public ResponseEntity<Optional<Integer>> getStock(@RequestParam Long productId) {
+        return ResponseEntity.ok(inventoryService.getStock(productId));
     }
 }

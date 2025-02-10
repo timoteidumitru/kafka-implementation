@@ -13,7 +13,7 @@ public class OrderProducer {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
-    @Value("${order.topic.name:order.placed}")
+    @Value("${order.topic.name:order.topic}")
     private String orderTopic;
 
     public OrderProducer(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper) {

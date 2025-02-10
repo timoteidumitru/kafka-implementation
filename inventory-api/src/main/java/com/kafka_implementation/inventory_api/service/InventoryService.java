@@ -1,8 +1,9 @@
 package com.kafka_implementation.inventory_api.service;
 
-import com.kafka_implementation.inventory_api.dto.RequestUpdate;
 import com.kafka_implementation.inventory_api.entity.Product;
 import com.kafka_implementation.inventory_api.repository.ProductRepository;
+import com.kafka_implementation.shared.dto.StockUpdateEvent;
+import com.kafka_implementation.shared.dto.StockUpdateRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,54 +15,49 @@ import java.util.Optional;
 public class InventoryService {
 
     private final ProductRepository productRepository;
+    private final InventoryUpdateProducer inventoryUpdateProducer;
 
-    public InventoryService(ProductRepository productRepository) {
+    public InventoryService(ProductRepository productRepository, InventoryUpdateProducer inventoryUpdateProducer) {
         this.productRepository = productRepository;
+        this.inventoryUpdateProducer = inventoryUpdateProducer;
     }
 
-    public Product addOrUpdateProduct(Product product) {
-        log.info("Request to add/update product: {}", product);
-
-        Product savedProduct = productRepository.save(product);
-        log.info("Product successfully saved with ID: {}", savedProduct.getId());
-
-        return savedProduct;
+    public Product addProduct(Product product) {
+        log.info("Adding product: {}", product);
+        return productRepository.save(product);
     }
 
     @Transactional
-    public Product updateStock(RequestUpdate productCode) {
-        log.info("Request to update stock for productCode: {}, quantity: {}", productCode.getProductCode(), productCode.getQuantity());
+    public Product updateStock(StockUpdateRequest request) {
+        log.info("Updating stock for productCode: {}, quantity: {}", request.getProductCode(), request.getQuantity());
 
-        Product product = productRepository.findByProductCode(productCode.getProductCode())
+        Product product = productRepository.findByProductCode(request.getProductCode())
                 .orElseThrow(() -> {
-                    log.warn("Product not found: {}", productCode);
-                    return new IllegalArgumentException("Product not found: " + productCode);
+                    log.warn("Product not found: {}", request.getProductCode());
+                    return new IllegalArgumentException("Product not found: " + request.getProductCode());
                 });
 
-        int newStock = product.getStock() + productCode.getQuantity();
-        if (newStock < 0) {
-            log.error("Insufficient stock for product: {}. Current stock: {}, Requested: {}", productCode, product.getStock(), productCode.getQuantity());
-            throw new IllegalArgumentException("Insufficient stock for product: " + productCode);
+        int newStock = product.getStock() + request.getQuantity();
+        boolean approved = newStock >= 0;
+
+        if (!approved) {
+            log.error("Insufficient stock for product: {}. Current stock: {}, Requested: {}",
+                    request.getProductCode(), product.getStock(), request.getQuantity());
+        } else {
+            product.setStock(newStock);
+            productRepository.save(product);
+            log.info("Stock updated successfully for productCode: {}. New stock: {}", request.getProductCode(), product.getStock());
         }
 
-        product.setStock(newStock);
-        Product updatedProduct = productRepository.save(product);
+        // Emit Kafka event
+        StockUpdateEvent event = new StockUpdateEvent(request.getOrderId(), approved);
+        inventoryUpdateProducer.sendStockUpdate(event);
 
-        log.info("Stock successfully updated for productCode: {}. New stock: {}", productCode, updatedProduct.getStock());
-        return updatedProduct;
+        return product;
     }
 
-    public Optional<Integer> getStock(Long id) {
-        log.info("Request to get stock for product ID: {}", id);
-
-        Optional<Integer> stock = productRepository.findById(id).map(Product::getStock);
-
-        if (stock.isPresent()) {
-            log.info("Stock retrieved for product ID: {}. Available stock: {}", id, stock.get());
-        } else {
-            log.warn("Product ID: {} not found. Returning stock as 0.0", id);
-        }
-
-        return stock;
+    public Optional<Integer> getStock(Long productId) {
+        log.info("Fetching stock for product ID: {}", productId);
+        return productRepository.findById(productId).map(Product::getStock);
     }
 }
