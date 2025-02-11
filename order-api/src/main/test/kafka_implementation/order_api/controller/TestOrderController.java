@@ -49,9 +49,9 @@ public class TestOrderController {
     @Test
     public void testListAllOrders() throws Exception {
         // Prepopulate the database with some realistic orders
-        Order order1 = new Order(null, 101L, "PENDING", "Smartphone", "Latest model smartphone with 128GB storage", 699.99, "Electronics");
-        Order order2 = new Order(null, 102L, "COMPLETED", "Laptop", "Gaming laptop with high-performance GPU", 1299.99, "Electronics");
-        Order order3 = new Order(null, 103L, "CANCELLED", "Desk Chair", "Ergonomic desk chair for home office", 199.99, "Furniture");
+        Order order1 = new Order(1L, "PENDING", 101L, "Smartphone", "Latest model smartphone with 128GB storage", 699.99, "Electronics", "SPH-128", 1);
+        Order order2 = new Order(2L, "COMPLETED", 102L, "Laptop", "Gaming laptop with high-performance GPU", 1299.99, "Electronics", "LTP-GPU", 1);
+        Order order3 = new Order(3L, "CANCELLED", 103L, "Desk Chair", "Ergonomic desk chair for home office", 199.99, "Furniture", "CH-ERG", 1);
 
         orderRepository.save(order1);
         orderRepository.save(order2);

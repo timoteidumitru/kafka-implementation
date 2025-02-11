@@ -12,11 +12,8 @@ public class PaymentController {
 
     @Autowired
     private PaymentRepository paymentRepository;
-
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
-
-    private static final String PAYMENT_RESULT_TOPIC = "payment-result-topic";
 
     @PostMapping
     public String processPayment(@RequestBody Payment payment) {
@@ -31,7 +28,7 @@ public class PaymentController {
 
         // Publish payment result to Kafka
         String message = String.format("Payment ID: %d, Status: %s", savedPayment.getId(), savedPayment.getStatus());
-        kafkaTemplate.send(PAYMENT_RESULT_TOPIC, message);
+        kafkaTemplate.send("payment-result-topic", message);
 
         return "Payment processed successfully!";
     }

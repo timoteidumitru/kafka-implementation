@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class StockUpdateEvent {
+public class PaymentResultEvent {
 
     private Long orderId;
     private boolean approved;

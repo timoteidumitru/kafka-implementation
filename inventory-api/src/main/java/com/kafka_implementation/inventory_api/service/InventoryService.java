@@ -2,7 +2,7 @@ package com.kafka_implementation.inventory_api.service;
 
 import com.kafka_implementation.inventory_api.entity.Product;
 import com.kafka_implementation.inventory_api.repository.ProductRepository;
-import com.kafka_implementation.shared.dto.StockUpdateEvent;
+import com.kafka_implementation.shared.dto.PaymentResultEvent;
 import com.kafka_implementation.shared.dto.StockUpdateRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -50,7 +50,7 @@ public class InventoryService {
         }
 
         // Emit Kafka event
-        StockUpdateEvent event = new StockUpdateEvent(request.getOrderId(), approved);
+        PaymentResultEvent event = new PaymentResultEvent(request.getOrderId(), approved);
         inventoryUpdateProducer.sendStockUpdate(event);
 
         return product;

@@ -3,7 +3,6 @@ package com.kafka_implementation.order_api.controller;
 import com.kafka_implementation.order_api.entity.Order;
 import com.kafka_implementation.order_api.repository.OrderRepository;
 import com.kafka_implementation.order_api.service.OrderProducer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -14,11 +13,13 @@ import java.util.List;
 @RequestMapping("/orders")
 public class OrderController {
 
-    @Autowired
-    private OrderRepository orderRepository;
+    private final OrderRepository orderRepository;
+    private final OrderProducer orderProducer;
 
-    @Autowired
-    private OrderProducer orderProducer;
+    public OrderController(OrderRepository orderRepository, OrderProducer orderProducer) {
+        this.orderRepository = orderRepository;
+        this.orderProducer = orderProducer;
+    }
 
     @GetMapping
     public String listAllOrders(Model model) {
@@ -35,14 +36,16 @@ public class OrderController {
 
     @PostMapping
     public String createOrder(@ModelAttribute Order order, Model model) {
-        order.setStatus("PENDING");
-        Order savedOrder = orderRepository.save(order);
+        try {
+            orderProducer.sendOrderEvent(order);
 
-        // Send OrderPlacedEvent to Kafka
-        orderProducer.sendOrderEvent(savedOrder);
-
-        model.addAttribute("message", "Order placed successfully!");
-        model.addAttribute("order", savedOrder);
-        return "order-confirmation";
+            model.addAttribute("message", "✅ Order request sent for validation!");
+            model.addAttribute("order", order);
+            return "order-confirmation"; // Show confirmation page without persisting yet
+        } catch (Exception e) {
+            model.addAttribute("message", "❌ Order submission failed: " + e.getMessage());
+            return "order-form"; // Let user retry
+        }
     }
+
 }
