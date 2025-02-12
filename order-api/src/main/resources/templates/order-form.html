@@ -7,18 +7,17 @@
 <body>
 <div class="container">
     <h1>Place an Order</h1>
-    <form th:action="@{/orders}" th:object="${order}" method="post">
-        <label for="name">Name:</label>
-        <input type="text" id="name" name="name" th:field="*{name}" required>
+    <form action="/orders" method="post">
+        <label for="product">Select Product:</label>
+        <select name="productCode" id="product">
+            <option th:each="product : ${products}"
+                    th:value="${product['code']}"
+                    th:text="${product['name']}">
+            </option>
+        </select>
 
-        <label for="description">Description:</label>
-        <input type="text" id="description" name="description" th:field="*{description}" required>
-
-        <label for="price">Price:</label>
-        <input type="number" id="price" name="price" th:field="*{price}" step="0.01" required>
-
-        <label for="category">Category:</label>
-        <input type="text" id="category" name="category" th:field="*{category}" required>
+        <label for="quantity">Quantity:</label>
+        <input type="number" name="quantity" id="quantity" required>
 
         <button type="submit">Place Order</button>
     </form>

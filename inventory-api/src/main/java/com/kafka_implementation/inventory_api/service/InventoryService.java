@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Slf4j
@@ -59,5 +60,10 @@ public class InventoryService {
     public Optional<Integer> getStock(Long productId) {
         log.info("Fetching stock for product ID: {}", productId);
         return productRepository.findById(productId).map(Product::getStock);
+    }
+
+    public List<Product> getAllProducts(){
+        log.info("Fetching all products from inventory.");
+        return productRepository.findAll();
     }
 }

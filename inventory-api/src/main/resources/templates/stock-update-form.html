@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Update Stock</title>
+    <link rel="stylesheet" type="text/css" href="/css/inventory.css">
+</head>
+<body>
+<h2>Update Stock</h2>
+<form action="/inventory/update-stock" method="post">
+    <label>Product Code:</label>
+    <input type="text" name="productCode" required />
+
+    <label>New Stock:</label>
+    <input type="number" name="newStock" required />
+
+    <button class="submit" type="submit">Update</button>
+</form>
+</body>
+</html>

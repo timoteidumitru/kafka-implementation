@@ -3,6 +3,7 @@ package com.kafka_implementation.order_api.controller;
 import com.kafka_implementation.order_api.entity.Order;
 import com.kafka_implementation.order_api.repository.OrderRepository;
 import com.kafka_implementation.order_api.service.OrderProducer;
+import com.kafka_implementation.order_api.service.OrderService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ public class OrderController {
 
     private final OrderRepository orderRepository;
     private final OrderProducer orderProducer;
+    private OrderService orderService;
 
     public OrderController(OrderRepository orderRepository, OrderProducer orderProducer) {
         this.orderRepository = orderRepository;
@@ -31,6 +33,7 @@ public class OrderController {
     @GetMapping("/new")
     public String showOrderForm(Model model) {
         model.addAttribute("order", new Order());
+        model.addAttribute("products", orderService.getAvailableProducts());
         return "order-form";
     }
 

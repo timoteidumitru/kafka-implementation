@@ -12,6 +12,7 @@ spring:
       -
   cloud:
     gateway:
+      forwarded-headers-strategy: framework
       discovery:
         locator:
           enabled: true

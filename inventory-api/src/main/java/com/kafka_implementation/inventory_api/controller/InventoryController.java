@@ -3,11 +3,14 @@ package com.kafka_implementation.inventory_api.controller;
 import com.kafka_implementation.inventory_api.entity.Product;
 import com.kafka_implementation.inventory_api.service.InventoryService;
 import com.kafka_implementation.shared.dto.StockUpdateRequest;
-import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 import java.util.Optional;
 
-@RestController
+@Controller
 @RequestMapping("/inventory")
 public class InventoryController {
 
@@ -17,18 +20,43 @@ public class InventoryController {
         this.inventoryService = inventoryService;
     }
 
-    @PostMapping("/add-product")
-    public ResponseEntity<Product> addProduct(@RequestBody Product product) {
-        return ResponseEntity.ok(inventoryService.addProduct(product));
+    @GetMapping()
+    public String listProducts(Model model) {
+        List<Product> products = inventoryService.getAllProducts();
+        model.addAttribute("products", products);
+        return "inventory-list";
     }
 
-    @PutMapping("/update-stock")
-    public ResponseEntity<?> updateStock(@RequestBody StockUpdateRequest request) {
-        return ResponseEntity.ok(inventoryService.updateStock(request));
+    @GetMapping("/add-product")
+    public String showAddProductForm(Model model) {
+        model.addAttribute("product", new Product());
+        return "product-form";
+    }
+
+    @PostMapping("/add-product")
+    public String addProduct(@ModelAttribute Product product, Model model) {
+        inventoryService.addProduct(product);
+        model.addAttribute("message", "✅ Product added successfully!");
+        return "redirect:/inventory";
+    }
+
+    @GetMapping("/update-stock")
+    public String showStockUpdateForm(Model model) {
+        model.addAttribute("stockUpdateRequest", new StockUpdateRequest());
+        return "stock-update-form";
+    }
+
+    @PostMapping("/update-stock")
+    public String updateStock(@ModelAttribute StockUpdateRequest request, Model model) {
+        inventoryService.updateStock(request);
+        model.addAttribute("message", "✅ Stock updated successfully!");
+        return "redirect:/inventory";
     }
 
     @GetMapping("/stock")
-    public ResponseEntity<Optional<Integer>> getStock(@RequestParam Long productId) {
-        return ResponseEntity.ok(inventoryService.getStock(productId));
+    public String getStock(@RequestParam Long productId, Model model) {
+        Optional<Integer> stock = inventoryService.getStock(productId);
+        model.addAttribute("stock", stock.orElse(0));
+        return "stock-view";
     }
 }

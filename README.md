@@ -72,7 +72,7 @@ Additionally, the project has been migrated to a **multi-module Maven** approach
 **Schema:**
 - **Order API**: Stores order details (ID, user ID, status).
 - **Payment API**: Stores user balances and transaction history.
-- **Inventory API**: Stores product stock levels.
+- **Inventory API**: Stores productDTO stock levels.
 
 ## How to Run the Project
 
