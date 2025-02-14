@@ -1,68 +1,65 @@
+
 body {
     font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
     margin: 0;
-    padding: 0;
-    background-color: #f8f9fa;
+    padding: 20px;
+    text-align: center;
 }
 
 .container {
-    max-width: 800px;
-    margin: 50px auto;
-    background: #ffffff;
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
     padding: 20px;
     border-radius: 8px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
 h1 {
     color: #333;
-    text-align: center;
-    margin-bottom: 20px;
-}
-
-.message {
-    text-align: center;
-    color: #28a745;
-    font-weight: bold;
-    margin-bottom: 20px;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 20px;
+    margin-top: 20px;
+    background: white;
 }
 
-table th, table td {
-    border: 1px solid #dee2e6;
-    padding: 10px;
-    text-align: left;
+th, td {
+    padding: 12px;
+    border: 1px solid #ddd;
+    text-align: center;
 }
 
-table th {
-    background-color: #343a40;
+th {
+    background-color: #007bff;
     color: white;
 }
 
 tr:nth-child(even) {
-    background-color: #f2f2f2;
+    background-color: #f9f9f9;
 }
 
-tr:hover {
-    background-color: #f1f1f1;
-}
-
-a {
-    display: inline-block;
-    color: white;
-    background-color: #007bff;
-    padding: 10px 20px;
-    text-decoration: none;
-    border-radius: 5px;
+input[type="number"] {
+    width: 60px;
+    padding: 5px;
     text-align: center;
-    transition: background-color 0.3s ease;
+    border: 1px solid #ccc;
+    border-radius: 4px;
 }
 
-a:hover {
-    background-color: #0056b3;
+button {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.3s;
+}
+
+button:hover {
+    background-color: #218838;
 }

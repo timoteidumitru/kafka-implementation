@@ -19,16 +19,16 @@ public class Order {
     @Column(nullable = false)
     private String status = "PENDING";
 
-    private Long userId;
-    private String name;
-    private String description;
-    private Double price;
-    private String category;
+    private Long userId = 772L;
+
+    @Column(nullable = false)
     private String productCode;
+
+    @Column(nullable = false)
     private int quantity;
 
-    public Order(Long orderId, String approved) {
+    public Order(Long orderId, String status) {
         this.id = orderId;
-        this.status = approved;
+        this.status = status;
     }
 }

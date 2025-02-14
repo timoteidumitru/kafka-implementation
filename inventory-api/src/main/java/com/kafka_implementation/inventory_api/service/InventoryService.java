@@ -23,18 +23,18 @@ public class InventoryService {
         this.inventoryUpdateProducer = inventoryUpdateProducer;
     }
 
-    public Product addProduct(Product product) {
+    public void addProduct(Product product) {
         log.info("Adding product: {}", product);
-        return productRepository.save(product);
+        productRepository.save(product);
     }
 
     @Transactional
-    public Product updateStock(StockUpdateRequest request) {
+    public void updateStock(StockUpdateRequest request) {
         log.info("Updating stock for productCode: {}, quantity: {}", request.getProductCode(), request.getQuantity());
 
-        Product product = productRepository.findByProductCode(request.getProductCode())
+        Product product = productRepository.findById(request.getOrderId())
                 .orElseThrow(() -> {
-                    log.warn("Product not found: {}", request.getProductCode());
+                    log.warn("Product not found: {}", request.getOrderId());
                     return new IllegalArgumentException("Product not found: " + request.getProductCode());
                 });
 
@@ -54,7 +54,6 @@ public class InventoryService {
         PaymentResultEvent event = new PaymentResultEvent(request.getOrderId(), approved);
         inventoryUpdateProducer.sendStockUpdate(event);
 
-        return product;
     }
 
     public Optional<Integer> getStock(Long productId) {

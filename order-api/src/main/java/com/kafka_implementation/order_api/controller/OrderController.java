@@ -1,9 +1,8 @@
 package com.kafka_implementation.order_api.controller;
 
-import com.kafka_implementation.order_api.entity.Order;
-import com.kafka_implementation.order_api.repository.OrderRepository;
 import com.kafka_implementation.order_api.service.OrderProducer;
 import com.kafka_implementation.order_api.service.OrderService;
+import com.kafka_implementation.shared.dto.ProductDTO;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -14,41 +13,33 @@ import java.util.List;
 @RequestMapping("/orders")
 public class OrderController {
 
-    private final OrderRepository orderRepository;
     private final OrderProducer orderProducer;
-    private OrderService orderService;
+    private final OrderService orderService;
 
-    public OrderController(OrderRepository orderRepository, OrderProducer orderProducer) {
-        this.orderRepository = orderRepository;
+    public OrderController(OrderProducer orderProducer, OrderService orderService) {
         this.orderProducer = orderProducer;
+        this.orderService = orderService;
     }
 
     @GetMapping
-    public String listAllOrders(Model model) {
-        List<Order> orders = orderRepository.findAll();
-        model.addAttribute("orders", orders);
-        return "order-list";
+    public String listAllProducts(Model model) {
+        List<ProductDTO> products = orderService.getAvailableProducts();
+        model.addAttribute("products", products);
+        return "product-list";
     }
 
-    @GetMapping("/new")
-    public String showOrderForm(Model model) {
-        model.addAttribute("order", new Order());
-        model.addAttribute("products", orderService.getAvailableProducts());
-        return "order-form";
-    }
-
-    @PostMapping
-    public String createOrder(@ModelAttribute Order order, Model model) {
+    @PostMapping("/buy")
+    public String createOrder(@RequestParam String productCode, @RequestParam Integer quantity, Model model) {
         try {
-            orderProducer.sendOrderEvent(order);
+            orderProducer.sendOrderEvent(productCode, quantity);
 
-            model.addAttribute("message", "✅ Order request sent for validation!");
-            model.addAttribute("order", order);
-            return "order-confirmation"; // Show confirmation page without persisting yet
+            model.addAttribute("message", "✅ Order placed successfully for " + quantity + " units of " + productCode);
+            return "order-confirmation";
         } catch (Exception e) {
-            model.addAttribute("message", "❌ Order submission failed: " + e.getMessage());
-            return "order-form"; // Let user retry
+            model.addAttribute("message", "❌ Order failed: " + e.getMessage());
+            return "product-list";
         }
     }
 
 }
+

@@ -7,11 +7,11 @@
 <body>
 <h2>Update Stock</h2>
 <form action="/inventory/update-stock" method="post">
-    <label>Product Code:</label>
-    <input type="text" name="productCode" required />
+    <label>Product ID:</label>
+    <input type="number" name="orderId" required />
 
     <label>New Stock:</label>
-    <input type="number" name="newStock" required />
+    <input type="number" name="quantity" required />
 
     <button class="submit" type="submit">Update</button>
 </form>

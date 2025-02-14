@@ -22,7 +22,7 @@ public class PaymentConsumer {
     public void consumeOrderEvent(ConsumerRecord<String, String> record) {
         try {
             OrderPlacedEvent orderEvent = objectMapper.readValue(record.value(), OrderPlacedEvent.class);
-            boolean isPaymentSuccessful = checkUserBalance(orderEvent.getUserId(), orderEvent.getTotalAmount());
+            boolean isPaymentSuccessful = checkUserBalance(orderEvent.getOrderId(), orderEvent.getQuantity());
 
             PaymentResultEvent paymentResult = new PaymentResultEvent(orderEvent.getOrderId(), isPaymentSuccessful);
             String message = objectMapper.writeValueAsString(paymentResult);

@@ -12,7 +12,5 @@ public class OrderPlacedEvent {
     private Long orderId;
     private String productCode;
     private int quantity;
-    private Long userId;
-    private double totalAmount;
 
 }

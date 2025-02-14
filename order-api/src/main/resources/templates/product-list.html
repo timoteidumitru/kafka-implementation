@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="EN">
+<head>
+    <title>Product List</title>
+    <link rel="stylesheet" type="text/css" href="/css/orders.css">
+</head>
+
+<body>
+<div class="container">
+    <h1>Available Products</h1>
+    <table>
+        <thead>
+        <tr>
+            <th>Product Code</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Price</th>
+            <th>Category</th>
+            <th>Stock</th>
+            <th>Quantity</th>
+            <th>Action</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="product : ${products}">
+            <td th:text="${product.productCode}"></td>
+            <td th:text="${product.name}"></td>
+            <td th:text="${product.description}"></td>
+            <td th:text="$'£'+{product.price}"></td>
+            <td th:text="${product.category}"></td>
+            <td th:text="${product.stock}"></td>
+            <td>
+                <input type="number" min="1" th:max="${product.stock}" value="1"
+                       th:id="'quantity-' + ${product.productCode}">
+            </td>
+            <td>
+                <form th:action="@{/orders/buy}" method="post">
+                    <input type="hidden" name="productCode" th:value="${product.productCode}">
+                    <input type="hidden" name="quantity" th:id="'hidden-quantity-' + ${product.productCode}">
+                    <button type="submit">Buy</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    document.querySelectorAll("input[type='number']").forEach(input => {
+        input.addEventListener("change", function () {
+            document.getElementById("hidden-" + this.id).value = this.value;
+        });
+    });
+</script>
+
+</body>
+</html>
