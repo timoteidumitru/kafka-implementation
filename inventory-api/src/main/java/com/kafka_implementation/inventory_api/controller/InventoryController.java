@@ -75,4 +75,12 @@ public class InventoryController {
                 product.getStock()
         )).toList();
     }
+
+    @PostMapping("/update-stock-api")
+    @ResponseBody
+    public String updateStockAPI(@RequestBody StockUpdateRequest request) {
+        inventoryService.updateStock(request);
+        return "Stock updated successfully";
+    }
+
 }
