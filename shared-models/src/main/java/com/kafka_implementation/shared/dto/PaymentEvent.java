@@ -7,10 +7,11 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class StockUpdateRequest {
+public class PaymentEvent {
 
     private Long orderId;
     private String productCode;
     private int quantity;
+    private boolean approved;
 
 }

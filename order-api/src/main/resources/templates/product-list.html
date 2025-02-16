@@ -26,7 +26,7 @@
             <td th:text="${product.productCode}"></td>
             <td th:text="${product.name}"></td>
             <td th:text="${product.description}"></td>
-            <td th:text="$'£'+{product.price}"></td>
+            <td th:text="'£' + ${product.price}"></td>
             <td th:text="${product.category}"></td>
             <td th:text="${product.stock}"></td>
             <td>
@@ -36,9 +36,11 @@
             <td>
                 <form th:action="@{/orders/buy}" method="post">
                     <input type="hidden" name="productCode" th:value="${product.productCode}">
-                    <input type="hidden" name="quantity" th:id="'hidden-quantity-' + ${product.productCode}">
+                    <input type="hidden" name="quantity" th:id="'hidden-quantity-' + ${product.productCode}" th:value="1">
+                    <input type="hidden" name="operation" value="buy" />
                     <button type="submit">Buy</button>
                 </form>
+
             </td>
         </tr>
         </tbody>
@@ -47,8 +49,12 @@
 
 <script>
     document.querySelectorAll("input[type='number']").forEach(input => {
-        input.addEventListener("change", function () {
-            document.getElementById("hidden-" + this.id).value = this.value;
+        input.addEventListener("input", function () {
+            let productCode = this.id.replace("quantity-", "");
+            let hiddenInput = document.getElementById("hidden-quantity-" + productCode);
+            if (hiddenInput) {
+                hiddenInput.value = this.value;
+            }
         });
     });
 </script>

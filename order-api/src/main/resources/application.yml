@@ -37,3 +37,9 @@ eureka:
       defaultZone: http://eureka-server:8761/eureka
   application:
     name: order-api
+
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet: DEBUG
+    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

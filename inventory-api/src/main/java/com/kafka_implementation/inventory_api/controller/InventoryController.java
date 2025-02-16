@@ -2,8 +2,8 @@ package com.kafka_implementation.inventory_api.controller;
 
 import com.kafka_implementation.inventory_api.entity.Product;
 import com.kafka_implementation.inventory_api.service.InventoryService;
+import com.kafka_implementation.shared.dto.OrderEvent;
 import com.kafka_implementation.shared.dto.ProductDTO;
-import com.kafka_implementation.shared.dto.StockUpdateRequest;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -43,12 +43,12 @@ public class InventoryController {
 
     @GetMapping("/update-stock")
     public String showStockUpdateForm(Model model) {
-        model.addAttribute("stockUpdateRequest", new StockUpdateRequest());
+        model.addAttribute("stockUpdateRequest", new OrderEvent());
         return "stock-update-form";
     }
 
     @PostMapping("/update-stock")
-    public String updateStock(@ModelAttribute StockUpdateRequest request, Model model) {
+    public String updateStock(@ModelAttribute OrderEvent request, Model model) {
         inventoryService.updateStock(request);
         List<Product> products = inventoryService.getAllProducts();
         model.addAttribute("products", products);
@@ -78,7 +78,7 @@ public class InventoryController {
 
     @PostMapping("/update-stock-api")
     @ResponseBody
-    public String updateStockAPI(@RequestBody StockUpdateRequest request) {
+    public String updateStockAPI(@RequestBody OrderEvent request) {
         inventoryService.updateStock(request);
         return "Stock updated successfully";
     }

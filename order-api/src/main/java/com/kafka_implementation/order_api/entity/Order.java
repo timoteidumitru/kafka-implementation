@@ -16,19 +16,15 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    private Long orderId;
+    private String productCode;
+    private int quantity;
     private String status = "PENDING";
 
-    private Long userId = 772L;
-
-    @Column(nullable = false)
-    private String productCode;
-
-    @Column(nullable = false)
-    private int quantity;
-
-    public Order(Long orderId, String status) {
-        this.id = orderId;
+    public Order(Long orderId, String productCode, int quantity, String status) {
+        this.orderId = orderId;
+        this.productCode = productCode;
+        this.quantity = quantity;
         this.status = status;
     }
 }

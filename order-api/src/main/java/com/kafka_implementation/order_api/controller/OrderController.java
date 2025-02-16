@@ -25,18 +25,20 @@ public class OrderController {
     public String listAllProducts(Model model) {
         List<ProductDTO> products = orderService.getAvailableProducts();
         model.addAttribute("products", products);
+        System.out.println(products.stream().toList());
         return "product-list";
     }
 
     @PostMapping("/buy")
-    public String createOrder(@RequestParam String productCode, @RequestParam Integer quantity, Model model) {
+    public String createOrder(@RequestParam("productCode") String productCode,
+                              @RequestParam("quantity") Integer quantity,
+                              Model model) {
         try {
             orderProducer.sendOrderEvent(productCode, quantity);
-
-            model.addAttribute("message", "✅ Order placed successfully for " + quantity + " units of " + productCode);
+            model.addAttribute("message", "Order placed successfully for " + quantity + " units of " + productCode);
             return "order-confirmation";
         } catch (Exception e) {
-            model.addAttribute("message", "❌ Order failed: " + e.getMessage());
+            model.addAttribute("message", "Order failed: " + e.getMessage());
             return "product-list";
         }
     }

@@ -7,9 +7,11 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class PaymentResultEvent {
+public class OrderEvent {
 
     private Long orderId;
-    private boolean approved;
+    private String productCode;
+    private int quantity;
+    private String operation;
 
 }

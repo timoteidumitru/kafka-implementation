@@ -3,12 +3,13 @@ package com.kafka_implementation.order_api.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka_implementation.order_api.entity.Order;
 import com.kafka_implementation.order_api.repository.OrderRepository;
-import com.kafka_implementation.shared.dto.PaymentResultEvent;
+import com.kafka_implementation.shared.dto.PaymentEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
-
+@Slf4j
 @Service
 public class OrderConsumer {
 
@@ -22,20 +23,24 @@ public class OrderConsumer {
 
     @KafkaListener(topics = "inventory-update-topic", groupId = "order-service")
     public void handleStockUpdate(ConsumerRecord<String, String> record) {
+        log.info("Received stock update message from topic: inventory-update-topic, Key: {}, Partition: {}, Offset: {}",
+                record.key(), record.partition(), record.offset());
+
         try {
-            PaymentResultEvent event = objectMapper.readValue(record.value(), PaymentResultEvent.class);
+            PaymentEvent event = objectMapper.readValue(record.value(), PaymentEvent.class);
+            log.info("Deserialized PaymentEvent: {}", event);
 
             if (event.isApproved()) {
-                // Save order only if approved
-                Order order = new Order(event.getOrderId(), "APPROVED");
+                Order order = new Order(event.getOrderId(), event.getProductCode(),
+                        event.getQuantity(), "APPROVED");
                 orderRepository.save(order);
+                log.info("Order Approved and saved to DB: {}", order);
             } else {
-                System.out.println("❌ Order rejected due to insufficient stock or payment failure.");
+                log.warn("Order rejected due to insufficient stock or payment failure. Order ID: {}",
+                        event.getOrderId());
             }
-
         } catch (Exception e) {
-            System.err.println("❌ Failed to process stock update: " + e.getMessage());
+            log.error("Failed to process stock update: {}", e.getMessage(), e);
         }
     }
-
 }

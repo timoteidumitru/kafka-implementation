@@ -49,9 +49,10 @@ public class TestOrderController {
     @Test
     public void testListAllOrders() throws Exception {
         // Prepopulate the database with some realistic orders
-        Order order1 = new Order(1L, "PENDING", 101L, "SPH-128", 1);
-        Order order2 = new Order(2L, "COMPLETED", 102L, "LTP-GPU", 1);
-        Order order3 = new Order(3L, "CANCELLED", 103L, "CH-ERG", 1);
+        Order order1 = new Order(101L, "SPH-128", 1, "PENDING");
+        Order order2 = new Order(102L, "LTP-GPU", 1, "COMPLETED");
+        Order order3 = new Order(103L, "CH-ERG", 1, "CANCELLED");
+
 
         orderRepository.save(order1);
         orderRepository.save(order2);

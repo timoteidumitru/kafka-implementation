@@ -1,12 +1,13 @@
 package com.kafka_implementation.order_api.service;
 
-import com.kafka_implementation.shared.dto.OrderPlacedEvent;
+import com.kafka_implementation.shared.dto.OrderEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.ThreadLocalRandom;
 
+@Slf4j
 @Service
 public class OrderProducer {
 
@@ -21,16 +22,14 @@ public class OrderProducer {
     public void sendOrderEvent(String productCode, int quantity) {
         try {
             long orderId = ThreadLocalRandom.current().nextLong(1, 1000);
-
-            OrderPlacedEvent orderEvent = new OrderPlacedEvent(orderId, productCode, quantity);
-
+            OrderEvent orderEvent = new OrderEvent(orderId, productCode, quantity, "buy");
             String message = objectMapper.writeValueAsString(orderEvent);
+
             kafkaTemplate.send("order.topic", message);
 
-            System.out.println("✅ OrderPlacedEvent Sent: " + message);
+            log.info("OrderEvent Sent: {}", message);
         } catch (Exception e) {
-            System.err.println("❌ Failed to send order event: " + e.getMessage());
+            log.error("Failed to send order event: {}", e.getMessage(), e);
         }
     }
-
 }
