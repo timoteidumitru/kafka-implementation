@@ -10,6 +10,9 @@ body {
     justify-content: space-around;
     background-color: #343a40;
     padding: 1em;
+    max-width: 80%;
+    margin: 1rem auto;
+    border-radius: 5px
 }
 
 .navbar button {

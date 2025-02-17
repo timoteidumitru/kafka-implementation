@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/orders")
@@ -33,9 +34,13 @@ public class OrderController {
     public String createOrder(@RequestParam("productCode") String productCode,
                               @RequestParam("quantity") Integer quantity,
                               Model model) {
+        List<ProductDTO> products = orderService.getAvailableProducts();
+        ProductDTO product = products.stream().filter(e -> e.getProductCode().equals(productCode)).findFirst().orElse(null);
         try {
             orderProducer.sendOrderEvent(productCode, quantity);
-            model.addAttribute("message", "Order placed successfully for " + quantity + " units of " + productCode);
+            assert product != null;
+            model.addAttribute("message", "Order placed successfully for "
+                    + quantity + " units of " + product.getName() + " " + product.getDescription());
             return "order-confirmation";
         } catch (Exception e) {
             model.addAttribute("message", "Order failed: " + e.getMessage());
