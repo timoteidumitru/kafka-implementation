@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Notifications</title>
+    <link rel="stylesheet" type="text/css" href="/css/notifications.css">
+</head>
+<body>
+<nav class="navbar">
+    <button onclick="window.location.href='/orders'">Orders</button>
+    <button onclick="window.location.href='/payments'">Payments</button>
+    <button onclick="window.location.href='/notifications'">Notification</button>
+    <button onclick="window.location.href='/inventory'">Inventory</button>
+</nav>
+
+<h2 class="mt-3">User Notifications</h2>
+<table>
+    <thead>
+    <tr>
+        <th>#</th>
+        <th>Message</th>
+        <th>Event Type</th>
+        <th>Timestamp</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="notification, iterStat : ${notifications}">
+        <td th:text="${iterStat.index + 1}"></td>
+        <td th:text="${notification.message}"></td>
+        <td th:text="${notification.eventType}"></td>
+        <td th:text="${notification.timestamp}"></td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>
