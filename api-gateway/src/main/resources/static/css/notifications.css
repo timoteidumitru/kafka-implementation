@@ -35,21 +35,29 @@ h2 {
     color: #333;
 }
 
+.notification-container {
+    display: flex;
+    justify-content: space-between;
+}
+
+.notification-column {
+    width: 32%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
 table {
-    width: 80%;
-    margin: 20px auto;
+    width: 100%;
     border-collapse: collapse;
-    background-color: #fff;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 th, td {
-    padding: 12px;
     border: 1px solid #ddd;
-    text-align: center;
+    padding: 8px;
 }
 
 th {
-    background-color: #007BFF;
-    color: white;
+    background-color: #f2f2f2;
 }
