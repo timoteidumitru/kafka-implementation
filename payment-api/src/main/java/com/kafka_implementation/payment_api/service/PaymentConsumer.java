@@ -1,6 +1,8 @@
 package com.kafka_implementation.payment_api.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kafka_implementation.payment_api.entity.Payment;
+import com.kafka_implementation.payment_api.repository.PaymentRepository;
 import com.kafka_implementation.shared.dto.OrderEvent;
 import com.kafka_implementation.shared.dto.PaymentEvent;
 import lombok.extern.slf4j.Slf4j;
@@ -14,10 +16,14 @@ public class PaymentConsumer {
 
     private final PaymentProducer paymentProducer;
     private final ObjectMapper objectMapper;
+    private final Payment payment;
+    private final PaymentRepository paymentRepository;
 
-    public PaymentConsumer(PaymentProducer paymentProducer, ObjectMapper objectMapper) {
+    public PaymentConsumer(PaymentProducer paymentProducer, ObjectMapper objectMapper, Payment payment, PaymentRepository paymentRepository) {
         this.paymentProducer = paymentProducer;
         this.objectMapper = objectMapper;
+        this.payment = payment;
+        this.paymentRepository = paymentRepository;
     }
 
     @KafkaListener(topics = "order.topic", groupId = "payment-service")
@@ -35,6 +41,10 @@ public class PaymentConsumer {
             PaymentEvent paymentResult = new PaymentEvent(orderEvent.getOrderId(),
                     orderEvent.getProductCode(), orderEvent.getQuantity(), isPaymentSuccessful);
             String message = objectMapper.writeValueAsString(paymentResult);
+
+            if (isPaymentSuccessful){
+                Payment payment = new Payment(null, paymentResult.getOrderId(), paymentResult.getQuantity(), isPaymentSuccessful);
+            }
 
             paymentProducer.sendPaymentResult(message);
             log.info("Sent PaymentEvent: {}", paymentResult);
