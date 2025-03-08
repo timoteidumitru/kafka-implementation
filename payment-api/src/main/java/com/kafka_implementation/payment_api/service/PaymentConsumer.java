@@ -10,19 +10,17 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
-@Slf4j
 @Service
+@Slf4j
 public class PaymentConsumer {
 
     private final PaymentProducer paymentProducer;
     private final ObjectMapper objectMapper;
-    private final Payment payment;
     private final PaymentRepository paymentRepository;
 
-    public PaymentConsumer(PaymentProducer paymentProducer, ObjectMapper objectMapper, Payment payment, PaymentRepository paymentRepository) {
+    public PaymentConsumer(PaymentProducer paymentProducer, ObjectMapper objectMapper, PaymentRepository paymentRepository) {
         this.paymentProducer = paymentProducer;
         this.objectMapper = objectMapper;
-        this.payment = payment;
         this.paymentRepository = paymentRepository;
     }
 
@@ -42,8 +40,13 @@ public class PaymentConsumer {
                     orderEvent.getProductCode(), orderEvent.getQuantity(), isPaymentSuccessful);
             String message = objectMapper.writeValueAsString(paymentResult);
 
-            if (isPaymentSuccessful){
-                Payment payment = new Payment(null, paymentResult.getOrderId(), paymentResult.getQuantity(), isPaymentSuccessful);
+            if (isPaymentSuccessful) {
+                // ✅ Create a Payment instance locally instead of injecting it
+                Payment payment = new Payment(null, paymentResult.getOrderId(),
+                        (double) paymentResult.getQuantity(), message);
+
+                // ✅ Save to repository
+                paymentRepository.save(payment);
             }
 
             paymentProducer.sendPaymentResult(message);
@@ -61,3 +64,4 @@ public class PaymentConsumer {
         return hasSufficientBalance;
     }
 }
+
