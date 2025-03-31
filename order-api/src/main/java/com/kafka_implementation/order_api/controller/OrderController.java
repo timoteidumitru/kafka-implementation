@@ -3,6 +3,7 @@ package com.kafka_implementation.order_api.controller;
 import com.kafka_implementation.order_api.service.OrderProducer;
 import com.kafka_implementation.order_api.service.OrderService;
 import com.kafka_implementation.shared.dto.ProductDTO;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +29,7 @@ public class OrderController {
 
     @GetMapping
     @Operation(summary = "Get available products", description = "Returns a list of available products that can be ordered.")
+    @RateLimiter(name = "orderRateLimiter", fallbackMethod = "rateLimitFallback")
     public String listAllProducts(Model model) {
         List<ProductDTO> products = orderService.getAvailableProducts();
         model.addAttribute("products", products);
@@ -36,6 +38,7 @@ public class OrderController {
 
     @PostMapping("/buy")
     @Operation(summary = "Create an order", description = "Places an order for a specified product and quantity.")
+    @RateLimiter(name = "orderRateLimiter", fallbackMethod = "rateLimitFallback")
     public String createOrder(
             @RequestParam("productCode") @Parameter(description = "The unique product code") String productCode,
             @RequestParam("quantity") @Parameter(description = "The quantity of the product to order") Integer quantity,
@@ -62,7 +65,18 @@ public class OrderController {
     @GetMapping("/api/products")
     @Operation(summary = "Get available products (JSON)", description = "Returns available products in JSON format.")
     @ResponseBody
+    @RateLimiter(name = "orderRateLimiter", fallbackMethod = "rateLimitFallbackJson")
     public ResponseEntity<List<ProductDTO>> getProductsAsJson() {
         return ResponseEntity.ok(orderService.getAvailableProducts());
+    }
+
+    // Fallback methods
+    public String rateLimitFallback(Model model, Throwable t) {
+        model.addAttribute("message", "Too many requests. Please try again later.");
+        return "error";
+    }
+
+    public ResponseEntity<List<ProductDTO>> rateLimitFallbackJson(Throwable t) {
+        return ResponseEntity.status(429).build();
     }
 }
