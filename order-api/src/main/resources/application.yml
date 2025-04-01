@@ -44,10 +44,3 @@ logging:
     org.springframework.web.servlet: DEBUG
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
 
-resilience4j.ratelimiter:
-  instances:
-    orderRateLimiter:
-      limit-for-period: 1000   # Maximum requests allowed per refresh period
-      limit-refresh-period: 1s # Refresh period (1 second)
-      timeout-duration: 0      # If limit is exceeded, do not wait (return immediately)
-
