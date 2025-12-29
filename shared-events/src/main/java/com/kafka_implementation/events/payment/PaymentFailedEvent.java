@@ -1,0 +1,24 @@
+package com.kafka_implementation.events.payment;
+
+import com.kafka_implementation.events.base.DomainEvent;
+import com.kafka_implementation.events.base.EventMetadata;
+import com.kafka_implementation.events.base.EventType;
+
+import java.util.UUID;
+
+public record PaymentFailedEvent(
+        EventMetadata metadata,
+        UUID orderId,
+        String reason
+) implements DomainEvent {
+
+    @Override
+    public EventType getEventType() {
+        return EventType.PAYMENT_FAILED;
+    }
+
+    @Override
+    public int getVersion() {
+        return metadata.version();
+    }
+}

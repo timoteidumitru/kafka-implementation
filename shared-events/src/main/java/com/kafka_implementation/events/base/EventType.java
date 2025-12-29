@@ -1,0 +1,15 @@
+package com.kafka_implementation.events.base;
+
+public enum EventType {
+    ORDER_CREATED,
+    ORDER_COMPLETED,
+    ORDER_FAILED,
+
+    PAYMENT_REQUESTED,
+    PAYMENT_COMPLETED,
+    PAYMENT_FAILED,
+
+    INVENTORY_RESERVE_REQUESTED,
+    INVENTORY_RESERVED,
+    INVENTORY_RESERVATION_FAILED
+}
