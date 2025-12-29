@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Product</title>
+    <link rel="stylesheet" type="text/css" href="/css/inventory.css">
+</head>
+<body>
+<nav class="navbar">
+    <button onclick="window.location.href='/orders'">Orders</button>
+    <button onclick="window.location.href='/payments'">Payments</button>
+    <button onclick="window.location.href='/notifications'">Notification</button>
+    <button onclick="window.location.href='/inventory'">Inventory</button>
+</nav>
+<h2>Add a New Product</h2>
+<form action="/inventory/add-product" method="post">
+    <label>Product Code:</label>
+    <input type="text" name="productCode" required />
+
+    <label>Name:</label>
+    <input type="text" name="name" required />
+
+    <label>Description:</label>
+    <input type="text" name="description" required />
+
+    <label>Category:</label>
+    <input type="text" name="category" required />
+
+    <label>Stock:</label>
+    <input type="number" name="stock" required />
+
+    <label>Price:</label>
+    <input type="number" step="0.01" name="price" required />
+
+    <button class="submit" type="submit">Add Product</button>
+</form>
+</body>
+</html>

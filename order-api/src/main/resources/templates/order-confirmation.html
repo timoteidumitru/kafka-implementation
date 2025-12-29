@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="EN">
+<head>
+    <title>Order Confirmation</title>
+    <link rel="stylesheet" type="text/css" href="/css/orders.css">
+</head>
+<body>
+<nav class="navbar">
+    <button onclick="window.location.href='/orders'">Orders</button>
+    <button onclick="window.location.href='/payments'">Payments</button>
+    <button onclick="window.location.href='/notifications'">Notification</button>
+    <button onclick="window.location.href='/inventory'">Inventory</button>
+</nav>
+<div class="container">
+    <h1>Order Confirmation</h1>
+    <p class="success-message" th:text="${message}"></p>
+    <a href="/inventory">Back to Products</a>
+</div>
+</body>
+</html>

@@ -1,0 +1,74 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: docker
+  application:
+    name: api-gateway
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+  redis:
+    host: redis
+    port: 6379
+  cloud:
+    gateway:
+      forwarded-headers-strategy: framework
+      discovery:
+        locator:
+          enabled: true
+          lowerCaseServiceId: true
+      routes:
+        - id: order-api
+          uri: lb://order-api
+          predicates:
+            - Path=/orders/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1000
+                redis-rate-limiter.burstCapacity: 1000
+                key-resolver: "#{@ipKeyResolver}"
+
+        - id: payment-api
+          uri: lb://payment-api
+          predicates:
+            - Path=/payments/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1000
+                redis-rate-limiter.burstCapacity: 1000
+                key-resolver: "#{@ipKeyResolver}"
+
+        - id: notification-api
+          uri: lb://notification-api
+          predicates:
+            - Path=/notifications/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1000
+                redis-rate-limiter.burstCapacity: 1000
+                key-resolver: "#{@ipKeyResolver}"
+
+        - id: inventory-api
+          uri: lb://inventory-api
+          predicates:
+            - Path=/inventory/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1000
+                redis-rate-limiter.burstCapacity: 1000
+                key-resolver: "#{@ipKeyResolver}"
+
+eureka:
+  instance:
+    hostname: api-gateway
+  client:
+    registerWithEureka: true
+    fetchRegistry: true
+    serviceUrl:
+      defaultZone: ${EUREKA_SERVER:http://eureka-server:8761/eureka}

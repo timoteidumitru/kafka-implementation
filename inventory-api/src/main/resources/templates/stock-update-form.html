@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Update Stock</title>
+    <link rel="stylesheet" type="text/css" href="/css/inventory.css">
+</head>
+<body>
+<nav class="navbar">
+    <button onclick="window.location.href='/orders'">Orders</button>
+    <button onclick="window.location.href='/payments'">Payments</button>
+    <button onclick="window.location.href='/notifications'">Notification</button>
+    <button onclick="window.location.href='/inventory'">Inventory</button>
+</nav>
+<h2>Update Stock</h2>
+<form action="/inventory/update-stock" method="post" th:object="${stockUpdateRequest}">
+
+    <label>Product Code:</label>
+    <input type="text" th:field="*{productCode}" required />
+
+    <label>New Stock:</label>
+    <input type="number" th:field="*{quantity}" required />
+
+    <input type="hidden" name="operation" value="restock" />
+
+    <button class="submit" type="submit">Update</button>
+</form>
+
+</body>
+</html>
