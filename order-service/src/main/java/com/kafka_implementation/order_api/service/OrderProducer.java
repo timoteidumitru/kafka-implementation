@@ -1,6 +1,6 @@
 package com.kafka_implementation.order_api.service;
 
-import com.kafka_implementation.events.OrderEvent;
+import com.kafka_implementation.shared_events.OrderEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;

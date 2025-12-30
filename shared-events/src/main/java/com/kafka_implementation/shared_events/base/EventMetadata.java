@@ -1,4 +1,4 @@
-package com.kafka_implementation.events.base;
+package com.kafka_implementation.shared_events.base;
 
 import java.time.Instant;
 import java.util.UUID;

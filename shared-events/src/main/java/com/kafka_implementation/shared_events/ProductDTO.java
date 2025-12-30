@@ -1,4 +1,4 @@
-package com.kafka_implementation.events;
+package com.kafka_implementation.shared_events;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

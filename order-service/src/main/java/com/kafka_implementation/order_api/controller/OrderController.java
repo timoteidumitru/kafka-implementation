@@ -2,7 +2,7 @@ package com.kafka_implementation.order_api.controller;
 
 import com.kafka_implementation.order_api.service.OrderProducer;
 import com.kafka_implementation.order_api.service.OrderService;
-import com.kafka_implementation.events.ProductDTO;
+import com.kafka_implementation.shared_events.ProductDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

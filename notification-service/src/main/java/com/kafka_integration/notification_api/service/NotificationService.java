@@ -1,9 +1,9 @@
 package com.kafka_integration.notification_api.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kafka_implementation.events.OrderEvent;
-import com.kafka_implementation.events.PaymentEvent;
-import com.kafka_implementation.events.ProductDTO;
+import com.kafka_implementation.shared_events.OrderEvent;
+import com.kafka_implementation.shared_events.PaymentEvent;
+import com.kafka_implementation.shared_events.ProductDTO;
 import com.kafka_integration.notification_api.entity.Notification;
 import com.kafka_integration.notification_api.repository.NotificationRepository;
 import com.kafka_integration.notification_api.service.external.ProductService;

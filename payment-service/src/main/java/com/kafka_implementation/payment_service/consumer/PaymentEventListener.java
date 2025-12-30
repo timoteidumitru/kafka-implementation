@@ -1,9 +1,9 @@
 package com.kafka_implementation.payment_service.consumer;
 
-import com.kafka_implementation.events.base.EventMetadata;
-import com.kafka_implementation.events.order.OrderCreatedEvent;
-import com.kafka_implementation.events.payment.PaymentCompletedEvent;
-import com.kafka_implementation.events.payment.PaymentFailedEvent;
+import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
+import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
+import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import com.kafka_implementation.payment_service.producer.PaymentEventPublisher;
 import com.kafka_implementation.payment_service.service.IdempotencyGuard;
 import com.kafka_implementation.payment_service.service.PaymentService;
@@ -31,28 +31,36 @@ public class PaymentEventListener {
     @KafkaListener(topics = "order.events", groupId = "payment-service")
     public void onOrderCreated(OrderCreatedEvent event) {
 
-        // Check idempotency
         if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
 
         try {
             // 1. Charge payment
-            paymentService.charge(event.orderId(), event.userId(), event.price());
+            paymentService.charge(
+                    event.orderId(),
+                    event.userId(),
+                    event.price()
+            );
 
-            // 2. Publish success event for Inventory service
+            // 2. Publish success event (now inventory-aware)
             PaymentCompletedEvent completedEvent = new PaymentCompletedEvent(
                     nextMetadata(event.metadata()),
                     event.orderId(),
+                    event.productId(),
+                    event.quantity(),
                     UUID.randomUUID().toString()
             );
+
             publisher.publishPaymentCompleted(completedEvent);
 
         } catch (Exception ex) {
-            // 3. Publish failure event for saga compensation
+
+            // 3. Publish failure event for compensation
             PaymentFailedEvent failedEvent = new PaymentFailedEvent(
                     nextMetadata(event.metadata()),
                     event.orderId(),
                     ex.getMessage()
             );
+
             publisher.publishPaymentFailed(failedEvent);
         }
     }
@@ -67,3 +75,4 @@ public class PaymentEventListener {
         );
     }
 }
+

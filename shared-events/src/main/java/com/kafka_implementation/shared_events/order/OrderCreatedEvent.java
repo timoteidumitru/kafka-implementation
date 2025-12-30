@@ -1,20 +1,22 @@
-package com.kafka_implementation.events.inventory;
+package com.kafka_implementation.shared_events.order;
 
-import com.kafka_implementation.events.base.*;
+import com.kafka_implementation.shared_events.base.*;
 
-import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.UUID;
 
-public record InventoryReserveRequestedEvent(
+public record OrderCreatedEvent(
         EventMetadata metadata,
         UUID orderId,
+        UUID userId,
         UUID productId,
-        int quantity
+        int quantity,
+        BigDecimal price
 ) implements DomainEvent {
 
     @Override
     public EventType getEventType() {
-        return EventType.PAYMENT_FAILED;
+        return EventType.ORDER_CREATED;
     }
 
     @Override
@@ -22,4 +24,3 @@ public record InventoryReserveRequestedEvent(
         return metadata.version();
     }
 }
-

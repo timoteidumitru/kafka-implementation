@@ -1,8 +1,8 @@
-package com.kafka_implementation.events.order;
+package com.kafka_implementation.shared_events.order;
 
-import com.kafka_implementation.events.base.DomainEvent;
-import com.kafka_implementation.events.base.EventMetadata;
-import com.kafka_implementation.events.base.EventType;
+import com.kafka_implementation.shared_events.base.DomainEvent;
+import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.shared_events.base.EventType;
 import java.util.UUID;
 
 public record OrderFailedEvent(

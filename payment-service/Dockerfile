@@ -1,9 +1,9 @@
-FROM openjdk:17-jdk-slim
+FROM openjdk:21-jdk-slim
 
 WORKDIR /app
 
-COPY target/payment-api-0.0.1-SNAPSHOT.jar payment-api.jar
+COPY target/payment-service-0.0.1-SNAPSHOT.jar payment-service.jar
 
 EXPOSE 8082
 
-ENTRYPOINT ["java", "-jar", "payment-api.jar"]
+ENTRYPOINT ["java", "-jar", "payment-service.jar"]

@@ -3,7 +3,7 @@ package com.kafka_implementation.order_api.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka_implementation.order_api.entity.Order;
 import com.kafka_implementation.order_api.repository.OrderRepository;
-import com.kafka_implementation.events.PaymentEvent;
+import com.kafka_implementation.shared_events.PaymentEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;

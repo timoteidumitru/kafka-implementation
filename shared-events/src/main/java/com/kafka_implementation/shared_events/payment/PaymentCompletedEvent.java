@@ -1,11 +1,13 @@
-package com.kafka_implementation.events.payment;
+package com.kafka_implementation.shared_events.payment;
 
-import com.kafka_implementation.events.base.*;
+import com.kafka_implementation.shared_events.base.*;
 import java.util.UUID;
 
 public record PaymentCompletedEvent(
         EventMetadata metadata,
         UUID orderId,
+        UUID productId,
+        int quantity,
         String transactionId
 ) implements DomainEvent {
 
@@ -19,4 +21,6 @@ public record PaymentCompletedEvent(
         return metadata.version();
     }
 }
+
+
 

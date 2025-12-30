@@ -1,7 +1,7 @@
 package com.kafka_implementation.payment_service.producer;
 
-import com.kafka_implementation.events.payment.PaymentCompletedEvent;
-import com.kafka_implementation.events.payment.PaymentFailedEvent;
+import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
+import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import com.kafka_implementation.payment_service.config.KafkaTopicsConfig;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;

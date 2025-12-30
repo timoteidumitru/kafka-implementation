@@ -1,6 +1,6 @@
 package com.kafka_implementation.order_api.service;
 
-import com.kafka_implementation.events.ProductDTO;
+import com.kafka_implementation.shared_events.ProductDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.cloud.client.ServiceInstance;

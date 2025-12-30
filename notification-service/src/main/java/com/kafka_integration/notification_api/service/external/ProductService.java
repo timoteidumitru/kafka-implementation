@@ -1,6 +1,6 @@
 package com.kafka_integration.notification_api.service.external;
 
-import com.kafka_implementation.events.ProductDTO;
+import com.kafka_implementation.shared_events.ProductDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;

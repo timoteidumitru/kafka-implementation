@@ -1,4 +1,4 @@
-package com.kafka_implementation.events.base;
+package com.kafka_implementation.shared_events.base;
 
 public enum EventType {
     ORDER_CREATED,

@@ -15,8 +15,8 @@
 	<groupId>com.kafka-implementation</groupId>
 	<artifactId>inventory-service</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>Inventory API</name>
-	<description>Inventory API, support service</description>
+	<name>Inventory Service</name>
+	<description>Inventory Service, support service</description>
 
 	<properties>
 		<java.version>21</java.version>
@@ -77,6 +77,12 @@
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.kafka_implementation</groupId>
+			<artifactId>payment-service</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+			<scope>compile</scope>
 		</dependency>
 
 	</dependencies>

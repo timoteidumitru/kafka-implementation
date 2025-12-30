@@ -1,9 +1,9 @@
-FROM openjdk:17-jdk-slim
+FROM openjdk:21-jdk-slim
 
 WORKDIR /app
 
-COPY target/inventory-api-0.0.1-SNAPSHOT.jar inventory-api.jar
+COPY target/inventory-service-0.0.1-SNAPSHOT.jar inventory-service.jar
 
 EXPOSE 8084
 
-ENTRYPOINT ["java", "-jar", "inventory-api.jar"]
+ENTRYPOINT ["java", "-jar", "inventory-service.jar"]
