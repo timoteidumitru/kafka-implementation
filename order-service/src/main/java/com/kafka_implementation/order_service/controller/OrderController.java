@@ -1,67 +1,51 @@
 package com.kafka_implementation.order_service.controller;
 
+import com.kafka_implementation.order_service.domain.CreateOrderRequest;
+import com.kafka_implementation.order_service.domain.Order;
+import com.kafka_implementation.order_service.producer.OrderEventPublisher;
 import com.kafka_implementation.order_service.service.OrderService;
-import com.kafka_implementation.shared_events.ProductDTO;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
+import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
 
-import java.util.List;
-
-@Controller
+@RestController
 @RequestMapping("/orders")
-@Tag(name = "Order Controller", description = "APIs for managing orders")
 public class OrderController {
 
-    private final OrderProducer orderProducer;
     private final OrderService orderService;
+    private final OrderEventPublisher publisher;
 
-    public OrderController(OrderProducer orderProducer, OrderService orderService) {
-        this.orderProducer = orderProducer;
+    public OrderController(OrderService orderService,
+                           OrderEventPublisher publisher) {
         this.orderService = orderService;
+        this.publisher = publisher;
     }
 
-    @GetMapping
-    @Operation(summary = "Get available products", description = "Returns a list of available products that can be ordered.")
-    public String listAllProducts(Model model) {
-        List<ProductDTO> products = orderService.getAvailableProducts();
-        model.addAttribute("products", products);
-        return "product-list";
-    }
+    @PostMapping
+    public UUID createOrder(@RequestBody CreateOrderRequest request) {
 
-    @PostMapping("/buy")
-    @Operation(summary = "Create an order", description = "Places an order for a specified product and quantity.")
-    public String createOrder(
-            @RequestParam("productCode") @Parameter(description = "The unique product code") String productCode,
-            @RequestParam("quantity") @Parameter(description = "The quantity of the product to order") Integer quantity,
-            Model model) {
+        UUID orderId = UUID.randomUUID();
 
-        List<ProductDTO> products = orderService.getAvailableProducts();
-        ProductDTO product = products.stream()
-                .filter(e -> e.getProductCode().equals(productCode))
-                .findFirst()
-                .orElse(null);
+        Order order = new Order(
+                orderId,
+                request.userId(),
+                request.productId(),
+                request.quantity(),
+                request.price()
+        );
 
-        try {
-            orderProducer.sendOrderEvent(productCode, quantity);
-            assert product != null;
-            model.addAttribute("message", "Order placed successfully for " + quantity
-                    + " units of " + product.getName() + " " + product.getDescription());
-            return "order-confirmation";
-        } catch (Exception e) {
-            model.addAttribute("message", "Order failed: " + e.getMessage());
-            return "product-list";
-        }
-    }
+        orderService.create(order);
 
-    @GetMapping("/api/products")
-    @Operation(summary = "Get available products (JSON)", description = "Returns available products in JSON format.")
-    @ResponseBody
-    public ResponseEntity<List<ProductDTO>> getProductsAsJson() {
-        return ResponseEntity.ok(orderService.getAvailableProducts());
+        publisher.publishOrderCreated(new OrderCreatedEvent(
+                EventMetadata.create("order-service", OrderCreatedEvent.VERSION),
+                orderId,
+                request.userId(),
+                request.productId(),
+                request.quantity(),
+                request.price()
+        ));
+
+        return orderId;
     }
 }

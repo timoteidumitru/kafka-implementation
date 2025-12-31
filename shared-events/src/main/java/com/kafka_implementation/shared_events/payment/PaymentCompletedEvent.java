@@ -20,6 +20,11 @@ public record PaymentCompletedEvent(
     public int getVersion() {
         return metadata.version();
     }
+
+    @Override
+    public UUID getAggregateId() {
+        return orderId;
+    }
 }
 
 

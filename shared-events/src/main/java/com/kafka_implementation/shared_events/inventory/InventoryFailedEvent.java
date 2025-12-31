@@ -21,5 +21,10 @@ public record InventoryFailedEvent(
         return metadata.version();
     }
 
+    @Override
+    public UUID getAggregateId() {
+        return orderId;
+    }
+
 }
 

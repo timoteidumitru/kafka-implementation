@@ -1,5 +1,6 @@
 package com.kafka_implementation.shared_events.base;
 
+import java.util.UUID;
 
 public interface DomainEvent {
 
@@ -8,4 +9,6 @@ public interface DomainEvent {
     EventType getEventType();
 
     int getVersion();
+
+    UUID getAggregateId();
 }

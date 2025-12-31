@@ -5,7 +5,7 @@ spring:
   profiles:
     active: docker
   application:
-    name: order-api
+    name: order-service
   jpa:
     hibernate:
       ddl-auto: update
@@ -13,7 +13,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
   datasource:
-    url: jdbc:mysql://mysql-db:3306/kafka_order_db
+    url: jdbc:mysql://mysql-db:3306/orders_db
     username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -25,22 +25,26 @@ spring:
     consumer:
       group-id: order-service
       auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
     producer:
+      acks: all
+      retries: 5
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 eureka:
   client:
     serviceUrl:
       defaultZone: http://eureka-server:8761/eureka
   application:
-    name: order-api
+    name: order-service
 
 logging:
   level:
     org.springframework.web: DEBUG
     org.springframework.web.servlet: DEBUG
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
-

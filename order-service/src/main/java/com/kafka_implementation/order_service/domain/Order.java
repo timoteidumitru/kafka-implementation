@@ -1,30 +1,43 @@
 package com.kafka_implementation.order_service.domain;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Data
-@Table(name = "`order`")
-@AllArgsConstructor
-@NoArgsConstructor
+@Table(name = "orders")
 public class Order {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private UUID id;
 
-    private Long orderId;
-    private String productCode;
+    private UUID userId;
+    private UUID productId;
     private int quantity;
-    private String status = "PENDING";
+    private BigDecimal price;
 
-    public Order(Long orderId, String productCode, int quantity, String status) {
-        this.orderId = orderId;
-        this.productCode = productCode;
+    @Enumerated(EnumType.STRING)
+    private OrderStatus status;
+
+    protected Order() {}
+
+    public Order(UUID id, UUID userId, UUID productId, int quantity, BigDecimal price) {
+        this.id = id;
+        this.userId = userId;
+        this.productId = productId;
         this.quantity = quantity;
-        this.status = status;
+        this.price = price;
+        this.status = OrderStatus.CREATED;
+    }
+
+    public void markCompleted() {
+        this.status = OrderStatus.COMPLETED;
+    }
+
+    public void markCancelled() {
+        this.status = OrderStatus.CANCELLED;
     }
 }
+

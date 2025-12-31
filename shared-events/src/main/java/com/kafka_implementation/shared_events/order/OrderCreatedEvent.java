@@ -13,6 +13,7 @@ public record OrderCreatedEvent(
         int quantity,
         BigDecimal price
 ) implements DomainEvent {
+    public static final int VERSION = 1;
 
     @Override
     public EventType getEventType() {
@@ -22,5 +23,10 @@ public record OrderCreatedEvent(
     @Override
     public int getVersion() {
         return metadata.version();
+    }
+
+    @Override
+    public UUID getAggregateId() {
+        return orderId;
     }
 }
