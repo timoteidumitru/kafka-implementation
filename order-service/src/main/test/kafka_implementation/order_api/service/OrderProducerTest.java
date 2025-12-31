@@ -1,7 +1,6 @@
 package kafka_implementation.order_api.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kafka_implementation.order_api.service.OrderProducer;
 import com.kafka_implementation.shared.dto.OrderEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

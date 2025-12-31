@@ -1,9 +1,8 @@
 package kafka_implementation.order_api.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kafka_implementation.order_api.entity.Order;
-import com.kafka_implementation.order_api.repository.OrderRepository;
-import com.kafka_implementation.order_api.service.OrderConsumer;
+import com.kafka_implementation.order_service.domain.Order;
+import com.kafka_implementation.order_service.repository.OrderRepository;
 import com.kafka_implementation.shared.dto.PaymentEvent;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;

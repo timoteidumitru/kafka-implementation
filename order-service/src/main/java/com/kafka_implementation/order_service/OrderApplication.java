@@ -1,13 +1,13 @@
-package com.kafka_implementation.order_api;
+package com.kafka_implementation.order_service;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class OrderApiApplication {
+public class OrderApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(OrderApiApplication.class, args);
+		SpringApplication.run(OrderApplication.class, args);
 	}
 
 }

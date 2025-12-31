@@ -42,7 +42,7 @@
 
 ---
 
-## Phase 2 — Inventory Service (Day 3–4)
+## Phase 2 — Inventory Service (Day 3–4) ✅
 
 **Goal:** Modernize Inventory Service to react to Payment events.
 

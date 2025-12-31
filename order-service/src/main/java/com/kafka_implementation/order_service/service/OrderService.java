@@ -1,4 +1,4 @@
-package com.kafka_implementation.order_api.service;
+package com.kafka_implementation.order_service.service;
 
 import com.kafka_implementation.shared_events.ProductDTO;
 import lombok.extern.slf4j.Slf4j;

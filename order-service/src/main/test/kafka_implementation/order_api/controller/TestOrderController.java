@@ -1,8 +1,8 @@
 package kafka_implementation.order_api.controller;
 
-import com.kafka_implementation.order_api.OrderApiApplication;
-import com.kafka_implementation.order_api.entity.Order;
-import com.kafka_implementation.order_api.repository.OrderRepository;
+import com.kafka_implementation.order_service.OrderApiApplication;
+import com.kafka_implementation.order_service.domain.Order;
+import com.kafka_implementation.order_service.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,4 +1,4 @@
-package com.kafka_implementation.order_api.entity;
+package com.kafka_implementation.order_service.domain;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
