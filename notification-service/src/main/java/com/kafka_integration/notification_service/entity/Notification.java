@@ -1,4 +1,4 @@
-package com.kafka_integration.notification_api.entity;
+package com.kafka_integration.notification_service.entity;
 
 import jakarta.persistence.*;
 import lombok.*;

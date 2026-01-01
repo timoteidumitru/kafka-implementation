@@ -19,7 +19,7 @@
 	<description>This is the notification API for payment/order/inventory services</description>
 
 	<properties>
-		<java.version>17</java.version>
+		<java.version>21</java.version>
 		<spring-cloud.version>2023.0.3</spring-cloud.version>
 		<spring-kafka.version>3.3.1</spring-kafka.version>
 	</properties>

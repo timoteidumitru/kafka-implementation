@@ -1,13 +1,13 @@
-package com.kafka_integration.notification_api;
+package com.kafka_integration.notification_service;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class NotificationApiApplication {
+public class NotificationApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(NotificationApiApplication.class, args);
+		SpringApplication.run(NotificationApplication.class, args);
 	}
 
 }

@@ -5,7 +5,7 @@ spring:
   profiles:
     active: docker
   application:
-    name: notification-api
+    name: notification-server
   jpa:
     hibernate:
       ddl-auto: update
@@ -13,7 +13,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   datasource:
-    url: jdbc:mysql://mysql-db:3306/kafka_notification_db
+    url: jdbc:mysql://mysql-db:3306/notification_db
     username: admin
     password: admin
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -33,7 +33,7 @@ eureka:
     serviceUrl:
       defaultZone: http://eureka-server:8761/eureka
   application:
-    name: notification-api
+    name: notification-service
 
 logging:
   level:
