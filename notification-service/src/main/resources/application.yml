@@ -1,42 +1,21 @@
 server:
-  port: 8083
+  port: 8085
 
 spring:
-  profiles:
-    active: docker
   application:
-    name: notification-server
-  jpa:
-    hibernate:
-      ddl-auto: update
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
-  datasource:
-    url: jdbc:mysql://mysql-db:3306/notification_db
-    username: admin
-    password: admin
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    hikari:
-      initialization-fail-timeout: 60000
-      connection-timeout: 30000
+    name: notification-service
   kafka:
     bootstrap-servers: kafka:9092
     consumer:
       group-id: notification-service
       auto-offset-reset: earliest
+      enable-auto-commit: true
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
 
 eureka:
   client:
     serviceUrl:
       defaultZone: http://eureka-server:8761/eureka
-  application:
-    name: notification-service
-
-logging:
-  level:
-    org.springframework.web: DEBUG
-    org.springframework.web.servlet: DEBUG
-    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

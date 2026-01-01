@@ -15,8 +15,8 @@
 	<groupId>com.kafka-implementation</groupId>
 	<artifactId>notification-service</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>Notification API</name>
-	<description>This is the notification API for payment/order/inventory services</description>
+	<name>Notification Service</name>
+	<description>This is the notification service for payment/order/inventory services</description>
 
 	<properties>
 		<java.version>21</java.version>
@@ -30,11 +30,6 @@
 			<groupId>com.kafka_implementation</groupId>
 			<artifactId>shared-events</artifactId>
 			<version>1.0.0</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-thymeleaf</artifactId>
 		</dependency>
 
 		<dependency>
@@ -53,26 +48,6 @@
 			<artifactId>spring-kafka</artifactId>
 		</dependency>
 
-		<!-- Testing Dependencies -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.kafka</groupId>
-			<artifactId>spring-kafka-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-classic</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-core</artifactId>
-		</dependency>
 	</dependencies>
 
 	<build>
