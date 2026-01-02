@@ -2,73 +2,42 @@ server:
   port: 8080
 
 spring:
-  profiles:
-    active: docker
   application:
     name: api-gateway
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-  redis:
-    host: redis
-    port: 6379
+
   cloud:
     gateway:
-      forwarded-headers-strategy: framework
       discovery:
         locator:
           enabled: true
-          lowerCaseServiceId: true
+          lower-case-service-id: true
+
       routes:
-        - id: order-api
-          uri: lb://order-api
+        # ---- ORDER SERVICE ----
+        - id: order-create
+          uri: lb://order-service
           predicates:
-            - Path=/orders/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 1000
-                redis-rate-limiter.burstCapacity: 1000
-                key-resolver: "#{@ipKeyResolver}"
+            - Path=/api/orders
+            - Method=POST
 
-        - id: payment-api
-          uri: lb://payment-api
+        - id: order-get
+          uri: lb://order-service
           predicates:
-            - Path=/payments/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 1000
-                redis-rate-limiter.burstCapacity: 1000
-                key-resolver: "#{@ipKeyResolver}"
+            - Path=/api/orders/**
+            - Method=GET
 
-        - id: notification-api
-          uri: lb://notification-api
+        # ---- INVENTORY (READ-ONLY) ----
+        - id: inventory-read
+          uri: lb://inventory-service
           predicates:
-            - Path=/notifications/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 1000
-                redis-rate-limiter.burstCapacity: 1000
-                key-resolver: "#{@ipKeyResolver}"
-
-        - id: inventory-api
-          uri: lb://inventory-api
-          predicates:
-            - Path=/inventory/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 1000
-                redis-rate-limiter.burstCapacity: 1000
-                key-resolver: "#{@ipKeyResolver}"
+            - Path=/api/inventory/**
+            - Method=GET
 
 eureka:
-  instance:
-    hostname: api-gateway
   client:
-    registerWithEureka: true
-    fetchRegistry: true
-    serviceUrl:
-      defaultZone: ${EUREKA_SERVER:http://eureka-server:8761/eureka}
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO

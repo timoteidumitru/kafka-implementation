@@ -58,7 +58,7 @@
 
 ---
 
-## Phase 3 — Order Service (Day 5–6)
+## Phase 3 — Order Service (Day 5–6) ✅
 
 **Goal:** Make Order Service the saga initiator.
 
@@ -75,7 +75,7 @@
 
 ---
 
-## Phase 4 — Notification Service (Day 7)
+## Phase 4 — Notification Service (Day 7) ✅
 
 **Goal:** Notify users asynchronously about payment and inventory status.
 
@@ -92,7 +92,7 @@
 
 ---
 
-## Phase 5 — API Gateway & Eureka (Day 8)
+## Phase 5 — API Gateway & Eureka (Day 8) 
 
 **Goal:** Provide single entry point and service discovery.
 
