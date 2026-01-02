@@ -38,7 +38,7 @@ spring:
 
 eureka:
   client:
-    serviceUrl:
+    service-url:
       defaultZone: http://eureka-server:8761/eureka
   application:
     name: order-service
