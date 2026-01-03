@@ -8,6 +8,8 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.order.OrderCompletedEvent;
 import com.kafka_implementation.shared_events.order.OrderFailedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,8 @@ public class OrderEventListener {
         this.idempotencyGuard = idempotencyGuard;
     }
 
+    @Retry(name = "order-kafka")
+    @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @KafkaListener(topics = "payment.events", groupId = "order-service")
     public void onPaymentFailed(PaymentFailedEvent event) {
 
@@ -39,9 +43,10 @@ public class OrderEventListener {
                 event.orderId(),
                 event.reason()
         ));
-
     }
 
+    @Retry(name = "order-kafka")
+    @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @KafkaListener(topics = "inventory.events", groupId = "order-service")
     public void onInventoryFailed(InventoryReservationFailedEvent event) {
 
@@ -56,6 +61,8 @@ public class OrderEventListener {
         ));
     }
 
+    @Retry(name = "order-kafka")
+    @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @KafkaListener(topics = "inventory.events", groupId = "order-service")
     public void onInventoryReserved(InventoryReservedEvent event) {
 
@@ -67,8 +74,13 @@ public class OrderEventListener {
                 next(event.metadata(), "order-service"),
                 event.orderId()
         ));
+    }
 
+
+    private void fallback(Object event, Throwable ex) {
+        System.err.println(
+                "[ORDER-SERVICE] Kafka consumer failure. Event sent to DLT. Cause: "
+                        + ex.getMessage()
+        );
     }
 }
-
-

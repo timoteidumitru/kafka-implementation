@@ -4,6 +4,7 @@ server:
 spring:
   profiles:
     active: docker
+    include: resilience
   application:
     name: order-service
   jpa:
@@ -22,14 +23,19 @@ spring:
       connection-timeout: 30000
   kafka:
     bootstrap-servers: kafka:9092
+
     consumer:
       group-id: order-service
       auto-offset-reset: earliest
       enable-auto-commit: false
+
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+
       properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: "*"
+
     producer:
       acks: all
       retries: 5

@@ -1,0 +1,14 @@
+resilience4j:
+  circuitbreaker:
+    instances:
+      order-kafka:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 10s
+
+  retry:
+    instances:
+      order-kafka:
+        maxAttempts: 3
+        waitDuration: 500ms
