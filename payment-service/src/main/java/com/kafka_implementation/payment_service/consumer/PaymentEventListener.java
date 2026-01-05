@@ -1,78 +1,71 @@
 package com.kafka_implementation.payment_service.consumer;
 
-import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.payment_service.producer.PaymentEventPublisher;
+import com.kafka_implementation.payment_service.service.PaymentService;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
-import com.kafka_implementation.payment_service.producer.PaymentEventPublisher;
-import com.kafka_implementation.payment_service.service.IdempotencyGuard;
-import com.kafka_implementation.payment_service.service.PaymentService;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.UUID;
+
+import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
 
 @Component
 public class PaymentEventListener {
 
     private final PaymentService paymentService;
     private final PaymentEventPublisher publisher;
-    private final IdempotencyGuard idempotencyGuard;
 
     public PaymentEventListener(PaymentService paymentService,
-                                PaymentEventPublisher publisher,
-                                IdempotencyGuard idempotencyGuard) {
+                                PaymentEventPublisher publisher) {
         this.paymentService = paymentService;
         this.publisher = publisher;
-        this.idempotencyGuard = idempotencyGuard;
     }
 
     @KafkaListener(topics = "order.events", groupId = "payment-service")
     public void onOrderCreated(OrderCreatedEvent event) {
 
-        if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
-
         try {
-            // 1. Charge payment
-            paymentService.charge(
-                    event.orderId(),
-                    event.userId(),
-                    event.price()
-            );
+            /* =========================
+               1. Execute payment logic
+               ========================= */
 
-            // 2. Publish success event (now inventory-aware)
-            PaymentCompletedEvent completedEvent = new PaymentCompletedEvent(
-                    nextMetadata(event.metadata()),
+            paymentService.processPayment(
                     event.orderId(),
                     event.productId(),
                     event.quantity(),
-                    UUID.randomUUID().toString()
+                    event.price()
             );
 
-            publisher.publishPaymentCompleted(completedEvent);
+            /* =========================
+               2. Emit PAYMENT COMPLETED
+               ========================= */
+
+            publisher.publishPaymentCompleted(
+                    new PaymentCompletedEvent(
+                            next(event.metadata(), "payment-service"),
+                            event.orderId(),
+                            event.productId(),
+                            event.quantity(),
+                            UUID.randomUUID().toString()
+                    )
+            );
 
         } catch (Exception ex) {
 
-            // 3. Publish failure event for compensation
-            PaymentFailedEvent failedEvent = new PaymentFailedEvent(
-                    nextMetadata(event.metadata()),
-                    event.orderId(),
-                    ex.getMessage()
-            );
+            /* =========================
+               3. Emit PAYMENT FAILED
+               ========================= */
 
-            publisher.publishPaymentFailed(failedEvent);
+            publisher.publishPaymentFailed(
+                    new PaymentFailedEvent(
+                            next(event.metadata(), "payment-service"),
+                            event.orderId(),
+                            ex.getMessage()
+                    )
+            );
         }
     }
-
-    private EventMetadata nextMetadata(EventMetadata previous) {
-        return new EventMetadata(
-                UUID.randomUUID(),
-                previous.correlationId(),
-                Instant.now(),
-                "payment-service",
-                previous.version()
-        );
-    }
 }
-
