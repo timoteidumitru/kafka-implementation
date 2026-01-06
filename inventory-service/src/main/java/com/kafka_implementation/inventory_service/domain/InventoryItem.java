@@ -4,28 +4,30 @@ import jakarta.persistence.*;
 import lombok.Data;
 import java.util.UUID;
 
-@Entity
 @Table(name = "inventory_items")
 @Data
+@Entity
 public class InventoryItem {
 
     @Id
     @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false, unique = true)
     private UUID productId;
 
-    private int availableQuantity;
+    private int available;
+
+    @Version
+    private Long version;
 
     protected InventoryItem() {}
 
-
     public void reserve(int quantity) {
-        if (availableQuantity < quantity) {
+        if (quantity > available) {
             throw new IllegalStateException("Insufficient stock");
         }
-        this.availableQuantity -= quantity;
+        this.available -= quantity;
     }
 }
+
 

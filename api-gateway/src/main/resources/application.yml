@@ -26,13 +26,6 @@ spring:
             - Path=/api/orders/**
             - Method=GET
 
-        # ---- INVENTORY (READ-ONLY) ----
-        - id: inventory-read
-          uri: lb://inventory-service
-          predicates:
-            - Path=/api/inventory/**
-            - Method=GET
-
 eureka:
   client:
     service-url:

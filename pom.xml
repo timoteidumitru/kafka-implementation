@@ -110,7 +110,7 @@
 
     <build>
         <plugins>
-            <!-- Compiler Plugin (for Java 17 & Lombok Annotations) -->
+            <!-- Compiler Plugin (for Java 21 & Lombok Annotations) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

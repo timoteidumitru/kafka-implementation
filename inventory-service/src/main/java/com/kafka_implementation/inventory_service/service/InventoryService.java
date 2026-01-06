@@ -17,11 +17,17 @@ public class InventoryService {
 
     @Transactional
     public void reserveStock(UUID productId, int quantity) {
+
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Invalid quantity");
+        }
+
         InventoryItem item = repository.findByProductId(productId)
                 .orElseThrow(() -> new IllegalStateException("Product not found"));
 
-        item.reserve(quantity);
+        item.reserve(quantity); // domain logic (throws if insufficient stock)
         repository.save(item);
     }
 }
+
 

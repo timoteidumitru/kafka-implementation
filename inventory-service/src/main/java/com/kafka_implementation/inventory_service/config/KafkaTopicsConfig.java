@@ -6,5 +6,6 @@ import org.springframework.context.annotation.Configuration;
 public class KafkaTopicsConfig {
 
     public static final String INVENTORY_EVENTS = "inventory.events";
+    public static final String INVENTORY_EVENTS_DLQ = "inventory.events.dlq";
 }
 

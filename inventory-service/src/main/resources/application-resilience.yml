@@ -1,0 +1,20 @@
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory-kafka:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 10s
+
+      inventory-producer:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 10s
+
+  retry:
+    instances:
+      inventory-kafka:
+        maxAttempts: 3
+        waitDuration: 500ms
