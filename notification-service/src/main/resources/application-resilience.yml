@@ -1,0 +1,13 @@
+resilience4j:
+  retry:
+    instances:
+      notification-kafka:
+        maxAttempts: 3
+        waitDuration: 500ms
+
+  circuitbreaker:
+    instances:
+      notification-kafka:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s

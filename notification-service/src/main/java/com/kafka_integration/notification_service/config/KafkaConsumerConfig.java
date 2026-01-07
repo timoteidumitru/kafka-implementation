@@ -1,35 +1,33 @@
 package com.kafka_integration.notification_service.config;
 
-import com.kafka_implementation.shared_events.base.DomainEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+
 import java.util.HashMap;
 import java.util.Map;
 
-@EnableKafka
 @Configuration
 public class KafkaConsumerConfig {
 
     @Bean
-    public ConsumerFactory<String, DomainEvent> consumerFactory() {
+    public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
 
-        JsonDeserializer<DomainEvent> deserializer =
-                new JsonDeserializer<>(DomainEvent.class, false);
-
+        JsonDeserializer<Object> deserializer = new JsonDeserializer<>(objectMapper);
         deserializer.addTrustedPackages("*");
 
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "kafka:9092");
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "notification-service");
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
 
         return new DefaultKafkaConsumerFactory<>(
                 props,
@@ -39,12 +37,14 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, DomainEvent> kafkaListenerContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, Object>
+    kafkaListenerContainerFactory(ConsumerFactory<String, Object> consumerFactory) {
 
-        ConcurrentKafkaListenerContainerFactory<String, DomainEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
 
-        factory.setConsumerFactory(consumerFactory());
-        factory.setConcurrency(3); // scalable notifications
+        factory.setConsumerFactory(consumerFactory);
+        factory.setConcurrency(1); // notifications & DLQ = safe + ordered
 
         return factory;
     }

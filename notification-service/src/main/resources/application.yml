@@ -7,9 +7,8 @@ spring:
   kafka:
     bootstrap-servers: kafka:9092
     consumer:
-      group-id: notification-service
+      group-id: notification-service-dlq
       auto-offset-reset: earliest
-      enable-auto-commit: true
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
