@@ -37,6 +37,20 @@ services:
     volumes:
       - kafka-logs:/var/lib/kafka/data
 
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - kafka-network
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      retries: 5
+
   mysql-db:
     image: mysql:8.0
     container_name: mysql-db
@@ -64,3 +78,4 @@ networks:
 volumes:
   zookeeper-data:
   kafka-logs:
+  redis-data:

@@ -92,7 +92,7 @@
 
 ---
 
-## Phase 5 — API Gateway & Eureka (Day 8) 
+## Phase 5 — API Gateway & Eureka (Day 8) ✅
 
 **Goal:** Provide single entry point and service discovery.
 

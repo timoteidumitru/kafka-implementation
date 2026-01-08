@@ -5,6 +5,10 @@ spring:
   application:
     name: api-gateway
 
+  redis:
+    host: redis
+    port: 6379
+
   cloud:
     gateway:
       discovery:
@@ -13,13 +17,22 @@ spring:
           lower-case-service-id: true
 
       routes:
-        # ---- ORDER SERVICE ----
+
+        # 🔐 ORDER CREATE (RATE LIMITED)
         - id: order-create
           uri: lb://order-service
           predicates:
             - Path=/api/orders
             - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}" # explicitly use IP-based key resolver
 
+        # 📖 ORDER READ (NO LIMIT)
         - id: order-get
           uri: lb://order-service
           predicates:
