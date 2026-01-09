@@ -1,21 +1,26 @@
 resilience4j:
-  circuitbreaker:
-    instances:
-      payment-kafka:
-        slidingWindowSize: 10
-        failureRateThreshold: 50
-        minimumNumberOfCalls: 5
-        waitDurationInOpenState: 10s
-      payment-producer:
-        max-attempts: 3
-        wait-duration: 500ms
-
   retry:
     instances:
       payment-kafka:
-        maxAttempts: 3
-        waitDuration: 500ms
-      payment-producer:
-        sliding-window-size: 10
+        max-attempts: 3
+        wait-duration: 500ms
+
+  circuitbreaker:
+    instances:
+      payment-kafka:
         failure-rate-threshold: 50
-        wait-duration-in-open-state: 5s
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
+
+  bulkhead:
+    instances:
+      payment-kafka:
+        max-concurrent-calls: 5
+
+  thread-pool-bulkhead:
+    instances:
+      payment-kafka:
+        core-thread-pool-size: 4
+        max-thread-pool-size: 8
+        queue-capacity: 20

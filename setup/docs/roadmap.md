@@ -107,7 +107,7 @@
 
 ---
 
-## Phase 6 — Resilience & Backpressure (Day 9)
+## Phase 6 — Resilience & Backpressure (Day 9) ✅
 
 **Goal:** Make system robust under load and failures.
 

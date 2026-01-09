@@ -12,3 +12,9 @@ resilience4j:
       order-kafka:
         maxAttempts: 3
         waitDuration: 500ms
+
+  bulkhead:
+    instances:
+      order-kafka:
+        maxConcurrentCalls: 5
+        maxWaitDuration: 0

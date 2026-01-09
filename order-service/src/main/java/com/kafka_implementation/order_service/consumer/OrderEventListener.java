@@ -8,9 +8,12 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.order.OrderCompletedEvent;
 import com.kafka_implementation.shared_events.order.OrderFailedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+
 import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
+
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -21,9 +24,10 @@ public class OrderEventListener {
     private final OrderEventPublisher publisher;
     private final IdempotencyGuard idempotencyGuard;
 
-    public OrderEventListener(OrderService orderService,
-                              OrderEventPublisher publisher,
-                              IdempotencyGuard idempotencyGuard) {
+    public OrderEventListener(
+            OrderService orderService,
+            OrderEventPublisher publisher,
+            IdempotencyGuard idempotencyGuard) {
         this.orderService = orderService;
         this.publisher = publisher;
         this.idempotencyGuard = idempotencyGuard;
@@ -31,6 +35,7 @@ public class OrderEventListener {
 
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
+    @Bulkhead(name = "order-kafka")
     @KafkaListener(topics = "payment.events", groupId = "order-service")
     public void onPaymentFailed(PaymentFailedEvent event) {
 
@@ -47,6 +52,7 @@ public class OrderEventListener {
 
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
+    @Bulkhead(name = "order-kafka")
     @KafkaListener(topics = "inventory.events", groupId = "order-service")
     public void onInventoryFailed(InventoryReservationFailedEvent event) {
 
@@ -63,6 +69,7 @@ public class OrderEventListener {
 
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
+    @Bulkhead(name = "order-kafka")
     @KafkaListener(topics = "inventory.events", groupId = "order-service")
     public void onInventoryReserved(InventoryReservedEvent event) {
 
@@ -76,10 +83,9 @@ public class OrderEventListener {
         ));
     }
 
-
     private void fallback(Object event, Throwable ex) {
         System.err.println(
-                "[ORDER-SERVICE] Kafka consumer failure. Event sent to DLT. Cause: "
+                "[ORDER-SERVICE] Kafka consumer failure. Event rejected by resilience layer. Cause: "
                         + ex.getMessage()
         );
     }

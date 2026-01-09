@@ -36,4 +36,3 @@ notification-service/*.iws
 notification-service/*.iml
 notification-service/*.ipr
 
-.gitignore
