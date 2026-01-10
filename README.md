@@ -1,136 +1,232 @@
-# Project Overview
+# Distributed Event-Driven Microservices System
 
-This project implements a distributed microservices system using Kafka for messaging and Docker for containerization. It includes key components such as an API Gateway, Service Registry, Order API, Payment API, Notification API, and Inventory API. The system leverages MySQL as the primary database for storing orders, payments, and inventory data.
+This project implements a **distributed microservices system** using **Kafka for messaging**, **Spring Boot 3**, **Java 21**, and **Docker**. It follows a **multi-module Maven architecture**, where the **parent `pom.xml`** manages all modules, dependencies, and builds.
 
-Additionally, the project has been migrated to a **multi-module Maven** approach, where the **parent `pom.xml`** manages the build and deployment of JAR files and Docker images for each module.
+The system currently includes:
+
+* API Gateway
+* Service Registry (Eureka)
+* Order Service
+* Payment Service
+* Inventory Service
+* Notification Service
+* Shared Events Module (Base, Inventory, Order, Payment events)
+
+All services implement **Resilience4j** (Retry, CircuitBreaker, Bulkhead), **Transactional guarantees**, and **IdempotencyGuard** for safe Kafka event processing.
+
+---
 
 ## Key Components
 
 ### 1. API Gateway
-**Purpose:** Routes incoming requests to the appropriate microservices and manages authentication and authorization.
 
-**Technology:** Spring Cloud Gateway with Spring Security.
+**Purpose:** Routes requests to microservices and handles resilience patterns.
+
+**Technology:** Spring Cloud Gateway
 
 **Endpoints:**
-- `/orders`: Routes to Order API.
-- `/payments`: Routes to Payment API.
-- `/inventory`: Routes to Inventory API.
+
+* `/api/orders` → Order Service
+
+**Resilience:** Retry, CircuitBreaker, Bulkhead applied at gateway level.
+
+---
 
 ### 2. Service Registry
-**Purpose:** Eureka Server for dynamic service discovery.
 
-**Components:**
-- **Eureka Server**: Centralized registry for microservices.
-- **Service Clients**: Order, Payment, Notification, and Inventory APIs register with Eureka.
+**Purpose:** Dynamic service discovery.
 
-### 3. Order API
-**Purpose:** Handles order creation and processing while interacting with Kafka.
+**Technology:** Eureka Server
 
-**Responsibilities:**
-- Receive order requests from the API Gateway.
-- Publish `order-created` events to Kafka.
-- Listen to `payment-validated` events and update order status.
+**Registered Clients:** Order, Payment, Inventory, and Notification services.
 
-### 4. Payment API
-**Purpose:** Validates payments and communicates with Kafka.
+---
+
+### 3. Order Service
+
+**Purpose:** Handles order creation and interacts with Kafka.
 
 **Responsibilities:**
-- Consume `order-created` events.
-- Validate payment using business logic and database lookup.
-- Publish `payment-validated` or `payment-declined` events to Kafka.
 
-### 5. Inventory API
-**Purpose:** Manages inventory updates and ensures stock availability.
+* Receive requests from API Gateway (`/api/orders`)
+* Publish `order.events` to Kafka
+* Consume `payment.events` for payment results:
+
+```java
+@Retry(name = "order-kafka")
+@CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
+@Bulkhead(name = "order-kafka")
+@KafkaListener(topics = "payment.events", groupId = "order-service")
+```
+
+* Ensure **transactional integrity** and **idempotency** using `IdempotencyGuard`
+
+---
+
+### 4. Payment Service
+
+**Purpose:** Validates payments and produces Kafka events.
 
 **Responsibilities:**
-- Store inventory data in MySQL.
-- Listen to `order-created` events to check stock availability.
-- Publish `inventory-updated` events if stock levels change.
 
-### 6. Notification API
-**Purpose:** Sends notifications to users about order and payment status.
+* Consume `order.events`
+* Validate payment via business logic & database
+* Publish `payment.events`
+* Supports **transactional safety** and **idempotent event processing**
+
+**Resilience:** Retry, CircuitBreaker, Bulkhead applied at service level.
+
+---
+
+### 5. Inventory Service
+
+**Purpose:** Manages stock and reserves inventory.
 
 **Responsibilities:**
-- Consume `payment-result` events.
-- Send email or SMS notifications based on the event outcome.
 
-### 7. Kafka
-**Purpose:** Facilitates asynchronous communication between services.
+* Consume `order.events`
+* Check stock availability and reserve items
+* Publish `inventory.events`
+* Persist inventory in MySQL
 
-**Setup:**
-- **Topics:**
-  - `order-topic`: Handles order creation events.
-  - `payment-result-topic`: Handles payment validation results.
-  - `inventory-update-topic`: Handles inventory changes.
-- **Configurations:**
-  - Enable partitioning for scalability.
-  - Set appropriate replication for fault tolerance.
+**Resilience:** Retry, CircuitBreaker, Bulkhead applied at service level.
 
-### 8. Database (MySQL)
-**Purpose:** Stores persistent data for orders, payments, and inventory.
+---
+
+### 6. Notification Service
+
+**Purpose:** Sends notifications to users about order/payment outcomes.
+
+**Responsibilities:**
+
+* Consume `payment.events`
+* Send email/SMS notifications
+
+**Resilience:** Retry, CircuitBreaker, Bulkhead applied at service level.
+
+---
+
+### 7. Shared Events Module
+
+**Purpose:** Defines common Kafka events across services.
+
+**Contents:**
+
+* Base events
+* Inventory events
+* Order events
+* Payment events
+
+**Kafka Topics:**
+
+* `order.events` → order creation and updates
+* `payment.events` → payment results
+* `inventory.events` → inventory updates
+
+---
+
+### 8. Kafka
+
+**Purpose:** Asynchronous communication between services.
+
+**Topics:**
+
+* `order.events`
+* `payment.events`
+* `inventory.events`
+
+**Resilience:** Partitioned and replicated for fault tolerance and scalability.
+
+---
+
+### 9. Database (MySQL)
+
+**Purpose:** Persistent storage for all services.
 
 **Schema:**
-- **Order API**: Stores order details (ID, user ID, status).
-- **Payment API**: Stores user balances and transaction history.
-- **Inventory API**: Stores productDTO stock levels.
+
+* Order Service → orders table
+* Payment Service → processed events, balances
+* Inventory Service → product stock levels
+
+---
+
+### 10. Docker Containerization
+
+**Three-layered approach:**
+
+1. **Infrastructure:** Kafka, Zookeeper, MySQL
+2. **Platform:** Service Registry, API Gateway
+3. **Services:** Order, Payment, Inventory, Notification
+
+All modules are containerized for consistent deployment across environments.
+
+---
+
+## Project Structure
+
+```
+kafka-implementation-master/
+├── eureka-server/
+├── api-gateway/
+├── order-service/
+├── payment-service/
+├── inventory-service/
+├── notification-service/
+├── shared-events/   (Base, Inventory, Order, Payment events)
+├── kafka-setup/     (Docker Compose for Kafka, Zookeeper, MySQL)
+├── pom.xml          (parent Maven POM)
+└── .gitignore
+```
+
+---
 
 ## How to Run the Project
 
 ### Prerequisites
-- Java 17 or higher
-- Maven
-- Docker (for running Kafka, MySQL, and microservices)
+
+* Java 21
+* Maven
+* Docker & Docker Compose
 
 ### Steps
-1. Clone the repository.
-   ```sh
-   git clone https://github.com/timoteidumitru/kafka-implementation.git
-   cd kafka-implementation
-   ```
-2. Navigate to the Kafka setup directory and start Kafka in a Docker container.
-   ```sh
-   cd kafka-setup
-   docker-compose up -d
-   ```
-   Follow the instructions in the `kafka-setup` folder to create the necessary topics.
-3. Return to the root folder and build the project.
-   ```sh
-   cd ..
-   mvn clean package
-   ```
-4. Start the microservices using Docker.
-   ```sh
-   docker-compose up --build
-   ```
-5. Once the services are running, you can test the endpoints using Postman or access the interface at:
-   ```sh
-   http://localhost:8080
-   ```
+
+1. Clone the repository:
+
+```sh
+git clone https://github.com/timoteidumitru/kafka-implementation.git
+cd kafka-implementation
+```
+
+2. Start infrastructure containers (Kafka, Zookeeper, MySQL):
+
+```sh
+cd kafka-setup
+docker-compose up -d
+```
+
+3. Build the project with Maven:
+
+```sh
+cd ..
+mvn clean install
+```
+
+4. Run microservices either via IDE or Docker.
+
+5. Access the single API endpoint:
+
+```sh
+http://localhost:8080/api/orders
+```
+
+---
 
 ## Future Enhancements
-- **Fault Tolerance**: Implement retry mechanisms and circuit breakers on API Gateway.
-- **Identity API**: Secure the application with JWT authentication.
-- **Monitoring & Metrics**: Integrate Grafana and Prometheus for real-time monitoring.
-- **Integration Tests**: Expand containerized integration testing for all APIs.
 
-## Project Structure
-```
-kafka-microservices-architecture/
-├── eureka-server/
-├── api-gateway/
-├── order-api/
-├── payment-api/
-├── inventory-api/
-├── notification-api/
-├── kafka-setup/
-├── shared/
-│   └── models/ (Common DTOs like OrderEvent, PaymentResultEvent, InventoryUpdateEvent)
-└── docs/
-    ├── README.md
-    ├── architecture-diagram.png
-    └── kafka-configs.md
-```
+* Add **Identity API** for JWT-based authentication
+* Expand **monitoring** with Prometheus and Grafana
+* Add **integration tests** for all containerized services
 
-## License
-This project is licensed under the MIT License.
+---
 

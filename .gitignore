@@ -1,38 +1,19 @@
-### Target output ###
-.gitignore
-eureka-server/target/
-api-gateway/target/
-order-service/target/
-payment-service/target/
-notification-service/target/
-inventory-service/target/
-shared-events/target/
+### Maven ###
+**/target/
 
 ### IntelliJ IDEA ###
 .idea/
-eureka-server/.idea/
-api-gateway/.idea/
-order-service/.idea/
-payment-service/.idea/
-notification-service/.idea/
-inventory-service/.idea/
+**/*.iml
+**/*.iws
+**/*.ipr
 
-eureka-server/*.iws
-eureka-server/*.iml
-eureka-server/*.ipr
-api-gateway/*.iws
-api-gateway/*.iml
-api-gateway/*.ipr
-order-service/*.iws
-order-service/*.iml
-order-service/*.ipr
-payment-service/*.iws
-payment-service/*.iml
-payment-service/*.ipr
-inventory-service/*.iws
-inventory-service/*.iml
-inventory-service/*.ipr
-notification-service/*.iws
-notification-service/*.iml
-notification-service/*.ipr
+### OS ###
+.DS_Store
+Thumbs.db
 
+### Logs ###
+**/*.log
+
+### Environment ###
+.env
+.env.*
