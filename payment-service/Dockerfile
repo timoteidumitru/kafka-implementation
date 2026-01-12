@@ -1,8 +1,8 @@
-FROM openjdk:21-jdk-slim
+FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
-COPY target/payment-service-0.0.1-SNAPSHOT.jar payment-service.jar
+COPY target/payment-service-1.0.0.jar payment-service.jar
 
 EXPOSE 8082
 

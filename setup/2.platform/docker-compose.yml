@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   eureka-server:
-    build: ./eureka-server
+    build: ../../eureka-server
     image: eureka-server:latest
     container_name: eureka-server
     ports:
@@ -12,12 +12,12 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8761"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8761/actuator/health" ]
       interval: 10s
       retries: 5
 
   api-gateway:
-    build: ./api-gateway
+    build: ../../api-gateway
     image: api-gateway:latest
     container_name: api-gateway
     ports:

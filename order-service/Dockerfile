@@ -1,8 +1,8 @@
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
-COPY target/order-service-0.0.1-SNAPSHOT.jar order-service.jar
+COPY target/order-service-1.0.0.jar order-service.jar
 
 EXPOSE 8081
 

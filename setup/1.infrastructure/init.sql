@@ -1,0 +1,9 @@
+CREATE DATABASE IF NOT EXISTS orders_db;
+CREATE DATABASE IF NOT EXISTS payments_db;
+CREATE DATABASE IF NOT EXISTS inventory_db;
+
+GRANT ALL PRIVILEGES ON orders_db.* TO 'admin'@'%';
+GRANT ALL PRIVILEGES ON payments_db.* TO 'admin'@'%';
+GRANT ALL PRIVILEGES ON inventory_db.* TO 'admin'@'%';
+
+FLUSH PRIVILEGES;

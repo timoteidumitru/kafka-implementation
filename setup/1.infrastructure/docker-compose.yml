@@ -57,6 +57,7 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: orders_db
       MYSQL_USER: admin
       MYSQL_PASSWORD: admin
     ports:
