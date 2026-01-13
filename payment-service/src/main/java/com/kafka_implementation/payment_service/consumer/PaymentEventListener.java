@@ -8,6 +8,9 @@ import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -18,11 +21,14 @@ import static com.kafka_implementation.shared_events.base.EventMetadataFactory.n
 @Component
 public class PaymentEventListener {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentEventListener.class);
+
     private final PaymentService paymentService;
     private final PaymentEventPublisher publisher;
 
-    public PaymentEventListener(PaymentService paymentService,
-                                PaymentEventPublisher publisher) {
+    public PaymentEventListener(
+            PaymentService paymentService,
+            PaymentEventPublisher publisher) {
         this.paymentService = paymentService;
         this.publisher = publisher;
     }
@@ -36,42 +42,70 @@ public class PaymentEventListener {
     )
     public void onOrderCreated(OrderCreatedEvent event) {
 
-        paymentService.processPayment(
-                event.orderId(),
-                event.productId(),
-                event.quantity(),
-                event.price()
-        );
+        try {
+            // ===== MDC context =====
+            MDC.put("eventId", event.metadata().eventId().toString());
+            MDC.put("correlationId", event.metadata().correlationId().toString());
+            MDC.put("orderId", event.orderId().toString());
 
-        publisher.publishPaymentCompleted(
-                new PaymentCompletedEvent(
-                        next(event.metadata(), "payment-service"),
-                        event.orderId(),
-                        event.productId(),
-                        event.quantity(),
-                        UUID.randomUUID().toString()
-                )
-        );
+            log.info(
+                    "Processing payment for orderId={}, productId={}, quantity={}, price={}",
+                    event.orderId(),
+                    event.productId(),
+                    event.quantity(),
+                    event.price()
+            );
+
+            paymentService.processPayment(
+                    event.orderId(),
+                    event.productId(),
+                    event.quantity(),
+                    event.price()
+            );
+
+            publisher.publishPaymentCompleted(
+                    new PaymentCompletedEvent(
+                            next(event.metadata(), "payment-service"),
+                            event.orderId(),
+                            event.productId(),
+                            event.quantity(),
+                            UUID.randomUUID().toString()
+                    )
+            );
+
+            log.info("Payment completed successfully");
+
+        } finally {
+            MDC.clear();
+        }
     }
 
     /**
-     * Bulkhead / CircuitBreaker / Retry fallback
+     * CircuitBreaker / Retry / Bulkhead fallback
      */
     private void fallback(OrderCreatedEvent event, Throwable ex) {
 
-        System.err.println(
-                "[PAYMENT-SERVICE] Payment failed or throttled. OrderId="
-                        + event.orderId()
-                        + " cause="
-                        + ex.getMessage()
-        );
+        try {
+            MDC.put("eventId", event.metadata().eventId().toString());
+            MDC.put("correlationId", event.metadata().correlationId().toString());
+            MDC.put("orderId", event.orderId().toString());
 
-        publisher.publishPaymentFailed(
-                new PaymentFailedEvent(
-                        next(event.metadata(), "payment-service"),
-                        event.orderId(),
-                        ex.getMessage()
-                )
-        );
+            log.error(
+                    "Payment failed or throttled. Reason={}",
+                    ex.getMessage(),
+                    ex
+            );
+
+            publisher.publishPaymentFailed(
+                    new PaymentFailedEvent(
+                            next(event.metadata(), "payment-service"),
+                            event.orderId(),
+                            ex.getMessage()
+                    )
+            );
+
+        } finally {
+            MDC.clear();
+        }
     }
 }

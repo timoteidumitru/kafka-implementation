@@ -1,0 +1,25 @@
+<configuration>
+
+    <!-- Service name from Spring -->
+    <property name="SERVICE_NAME" value="${spring.application.name}" />
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss.SSS}
+                %-5level
+                [%property{SERVICE_NAME}]
+                traceId=%X{traceId:-}
+                corrId=%X{correlationId:-}
+                eventId=%X{eventId:-}
+                orderId=%X{orderId:-}
+                %logger{36} - %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>
