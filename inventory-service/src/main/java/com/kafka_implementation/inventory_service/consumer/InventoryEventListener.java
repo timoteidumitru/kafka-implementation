@@ -9,6 +9,9 @@ import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +19,8 @@ import static com.kafka_implementation.shared_events.base.EventMetadataFactory.n
 
 @Component
 public class InventoryEventListener {
+
+    private static final Logger log = LoggerFactory.getLogger(InventoryEventListener.class);
 
     private final InventoryService inventoryService;
     private final InventoryEventPublisher publisher;
@@ -39,18 +44,44 @@ public class InventoryEventListener {
     )
     public void onPaymentCompleted(PaymentCompletedEvent event) {
 
-        if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
+        try {
+            // ===== MDC context =====
+            MDC.put("eventId", event.metadata().eventId().toString());
+            MDC.put("correlationId", event.metadata().correlationId().toString());
+            MDC.put("orderId", event.orderId().toString());
+            MDC.put("productId", event.productId().toString());
 
-        inventoryService.reserveStock(event.productId(), event.quantity());
+            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) {
+                log.info("Duplicate payment event detected — skipping processing");
+                return;
+            }
 
-        publisher.publishReserved(
-                new InventoryReservedEvent(
-                        next(event.metadata(), "inventory-service"),
-                        event.orderId(),
-                        event.productId(),
-                        event.quantity()
-                )
-        );
+            log.info(
+                    "Reserving inventory for orderId={}, productId={}, quantity={}",
+                    event.orderId(),
+                    event.productId(),
+                    event.quantity()
+            );
+
+            inventoryService.reserveStock(
+                    event.productId(),
+                    event.quantity()
+            );
+
+            publisher.publishReserved(
+                    new InventoryReservedEvent(
+                            next(event.metadata(), "inventory-service"),
+                            event.orderId(),
+                            event.productId(),
+                            event.quantity()
+                    )
+            );
+
+            log.info("Inventory successfully reserved");
+
+        } finally {
+            MDC.clear();
+        }
     }
 
     /**
@@ -58,19 +89,27 @@ public class InventoryEventListener {
      */
     private void fallback(PaymentCompletedEvent event, Throwable ex) {
 
-        System.err.println(
-                "[INVENTORY-SERVICE] Inventory reservation failed or throttled. OrderId="
-                        + event.orderId()
-                        + " cause="
-                        + ex.getMessage()
-        );
+        try {
+            MDC.put("eventId", event.metadata().eventId().toString());
+            MDC.put("correlationId", event.metadata().correlationId().toString());
+            MDC.put("orderId", event.orderId().toString());
+            MDC.put("productId", event.productId().toString());
 
-        publisher.publishFailed(
-                new InventoryReservationFailedEvent(
-                        next(event.metadata(), "inventory-service"),
-                        event.orderId(),
-                        "Inventory service unavailable"
-                )
-        );
+            log.error(
+                    "Inventory reservation failed or throttled",
+                    ex
+            );
+
+            publisher.publishFailed(
+                    new InventoryReservationFailedEvent(
+                            next(event.metadata(), "inventory-service"),
+                            event.orderId(),
+                            "Inventory service unavailable"
+                    )
+            );
+
+        } finally {
+            MDC.clear();
+        }
     }
 }
