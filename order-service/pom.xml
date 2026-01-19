@@ -24,6 +24,24 @@
 	<!-- ====================================================== -->
 	<dependencies>
 
+		<!-- Micrometer Tracing bridge (OpenTelemetry) -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+
+		<!-- OpenTelemetry SDK -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk</artifactId>
+		</dependency>
+
+		<!-- OpenTelemetry context propagation -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-context</artifactId>
+		</dependency>
+
 		<!-- Web -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

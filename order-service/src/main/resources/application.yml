@@ -54,3 +54,10 @@ logging:
     org.springframework.web: DEBUG
     org.springframework.web.servlet: DEBUG
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
+
+management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0  # trace 100% for now
+
