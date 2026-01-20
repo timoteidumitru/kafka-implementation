@@ -16,58 +16,60 @@ import java.util.UUID;
 @Component
 public class CorrelationLoggingFilter implements GlobalFilter, Ordered {
 
-    private static final Logger log = LoggerFactory.getLogger(CorrelationLoggingFilter.class);
+    private static final Logger log =
+            LoggerFactory.getLogger(CorrelationLoggingFilter.class);
 
     public static final String CORRELATION_ID = "X-Correlation-Id";
-    public static final String TRACE_ID = "X-Trace-Id";
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
 
-        String correlationId = getOrCreate(exchange, CORRELATION_ID);
-        String traceId = getOrCreate(exchange, TRACE_ID);
-        String method = exchange.getRequest().getMethod() != null
-                ? exchange.getRequest().getMethod().name()
+        ServerHttpRequest request = exchange.getRequest();
+
+        String correlationId = request.getHeaders().getFirst(CORRELATION_ID);
+        if (correlationId == null) {
+            correlationId = UUID.randomUUID().toString();
+        }
+
+        String method = request.getMethod() != null
+                ? request.getMethod().name()
                 : "UNKNOWN";
 
         long start = System.currentTimeMillis();
 
-        MDC.put("correlationId", correlationId);
-        MDC.put("traceId", traceId);
-        MDC.put("httpMethod", method);
-        MDC.put("httpPath", exchange.getRequest().getURI().getPath());
+        String finalCorrelationId = correlationId;
 
         ServerHttpRequest mutatedRequest =
-                exchange.getRequest()
-                        .mutate()
-                        .header(CORRELATION_ID, correlationId)
-                        .header(TRACE_ID, traceId)
+                request.mutate()
+                        .header(CORRELATION_ID, finalCorrelationId)
                         .build();
 
         return chain.filter(exchange.mutate().request(mutatedRequest).build())
+                .doOnSubscribe(sub -> {
+                    MDC.put("correlationId", finalCorrelationId);
+                    MDC.put("httpMethod", method);
+                    MDC.put("path", request.getURI().getPath());
+                })
                 .doOnSuccess(v -> logResponse(exchange, start))
                 .doOnError(ex -> logError(exchange, start, ex))
                 .doFinally(signal -> MDC.clear());
     }
 
-    private String getOrCreate(ServerWebExchange exchange, String header) {
-        return exchange.getRequest()
-                .getHeaders()
-                .getFirst(header) != null
-                ? exchange.getRequest().getHeaders().getFirst(header)
-                : UUID.randomUUID().toString();
-    }
-
     private void logResponse(ServerWebExchange exchange, long start) {
-        MDC.put("status", String.valueOf(exchange.getResponse().getStatusCode()));
-        MDC.put("latencyMs", String.valueOf(System.currentTimeMillis() - start));
+        MDC.put("status",
+                exchange.getResponse().getStatusCode() != null
+                        ? exchange.getResponse().getStatusCode().toString()
+                        : "UNKNOWN");
+        MDC.put("latencyMs",
+                String.valueOf(System.currentTimeMillis() - start));
 
         log.info("Gateway request completed");
     }
 
     private void logError(ServerWebExchange exchange, long start, Throwable ex) {
         MDC.put("status", "500");
-        MDC.put("latencyMs", String.valueOf(System.currentTimeMillis() - start));
+        MDC.put("latencyMs",
+                String.valueOf(System.currentTimeMillis() - start));
 
         log.error("Gateway request failed", ex);
     }
@@ -77,3 +79,4 @@ public class CorrelationLoggingFilter implements GlobalFilter, Ordered {
         return Ordered.HIGHEST_PRECEDENCE;
     }
 }
+
