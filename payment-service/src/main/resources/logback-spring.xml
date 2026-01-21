@@ -13,6 +13,7 @@
                 spanId=%X{spanId:-}
                 correlationId=%X{correlationId:-}
                 eventId=%X{eventId:-}
+                paymentId=%X{paymentId:-}
                 orderId=%X{orderId:-}
                 %logger{36} - %msg%n
             </pattern>
