@@ -4,10 +4,13 @@ server:
 spring:
   application:
     name: notification-service
+
   kafka:
     bootstrap-servers: kafka:9092
+    properties:
+      spring.kafka.observation.enabled: true
     consumer:
-      group-id: notification-service-dlq
+      group-id: notification-service
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
@@ -18,5 +21,8 @@ eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka
-  application:
-    name: notification-service
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0

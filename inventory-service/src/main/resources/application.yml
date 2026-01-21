@@ -4,14 +4,17 @@ server:
 spring:
   profiles:
     active: docker
+
   application:
     name: inventory-service
+
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+
   datasource:
     url: jdbc:mysql://mysql-db:3306/inventory_db
     username: admin
@@ -20,31 +23,34 @@ spring:
     hikari:
       initialization-fail-timeout: 60000
       connection-timeout: 30000
+
   kafka:
     bootstrap-servers: kafka:9092
-    kafka:
-      consumer:
-        group-id: inventory-service
-        enable-auto-commit: false
-        auto-offset-reset: earliest
-        key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-        value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-        properties:
-          spring.json.trusted.packages: "*"
-
-      producer:
-        acks: all
-        retries: 5
-        key-serializer: org.apache.kafka.common.serialization.StringSerializer
-        value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-
+    properties:
+      spring.kafka.observation.enabled: true
+    consumer:
+      group-id: inventory-service
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      acks: all
+      retries: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka
-  application:
-    name: inventory-service
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
 
 logging:
   level:

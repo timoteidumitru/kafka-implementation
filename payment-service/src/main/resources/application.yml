@@ -6,12 +6,14 @@ spring:
     active: docker
   application:
     name: payment-service
+
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
+
   datasource:
     url: jdbc:mysql://mysql-db:3306/payments_db
     username: admin
@@ -20,8 +22,11 @@ spring:
     hikari:
       initialization-fail-timeout: 60000
       connection-timeout: 30000
+
   kafka:
     bootstrap-servers: kafka:9092
+    properties:
+      spring.kafka.observation.enabled: true
     consumer:
       group-id: payment-service
       auto-offset-reset: earliest
@@ -37,13 +42,15 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
-
 eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka
-  application:
-    name: payment-service
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
 
 logging:
   level:
