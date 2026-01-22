@@ -186,3 +186,16 @@
 | 9     | Optional Enhancements     | Auth, archiving, retry policies, advanced notifications |
 
 ---
+
+🪜 Step-by-Step Plan (Industrial, Minimal, Safe)
+
+We’ll do this in small controlled steps:
+
+Step 3.1 — Expose metrics via Actuator (per service)
+Step 3.2 — Add Prometheus registry
+Step 3.3 — Verify metrics locally
+Step 3.4 — Add Prometheus (Docker)
+Step 3.5 — Add Grafana dashboards
+Step 3.6 — Kafka-specific dashboards
+
+👉 One step at a time

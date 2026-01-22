@@ -60,4 +60,10 @@ management:
     enabled: true
     sampling:
       probability: 1.0  # trace 100% for now
-
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
