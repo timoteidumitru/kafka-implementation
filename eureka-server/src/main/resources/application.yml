@@ -13,8 +13,16 @@ eureka:
     wait-time-in-ms-when-sync-empty: 0
 
 management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 
