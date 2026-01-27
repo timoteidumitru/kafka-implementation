@@ -83,6 +83,19 @@ services:
     networks:
       - kafka-network
 
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+
 networks:
   kafka-network:
     name: kafka-network
@@ -92,3 +105,4 @@ volumes:
   zookeeper-data:
   kafka-logs:
   redis-data:
+  grafana-data:
