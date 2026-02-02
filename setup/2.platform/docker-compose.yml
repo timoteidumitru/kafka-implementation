@@ -31,6 +31,21 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       EUREKA_SERVER: http://eureka-server:8761/eureka
 
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    command:
+      - "--kafka.server=kafka:9092"
+      - "--group.filter=.*"
+      - "--topic.filter=.*"
+    ports:
+      - "9308:9308"
+    networks:
+      - kafka-network
+    depends_on:
+      kafka:
+        condition: service_started
+
 networks:
   kafka-network:
     external: true
