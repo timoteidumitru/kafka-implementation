@@ -22,6 +22,12 @@
 	<!-- ====================================================== -->
 	<dependencies>
 
+		<!-- Zipkin -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-zipkin</artifactId>
+		</dependency>
+
 		<!-- Prometheus -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
