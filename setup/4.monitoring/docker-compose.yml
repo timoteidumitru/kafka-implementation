@@ -9,8 +9,11 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus/rules:/etc/prometheus/rules
+      - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
     networks:
       - kafka-network
 
@@ -48,3 +51,4 @@ networks:
 
 volumes:
   grafana-data:
+  prometheus-data:
