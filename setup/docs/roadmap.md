@@ -188,10 +188,10 @@
 ---
 ### 🏭 Industry Maturity Ladder (We Are Here)
 
-- ❌ No visibility
-- 🔍 Logs only
-- 📊 Metrics
-- 🧵 Traces
-- 🚨 Alerting ← WE ARE HERE
-- 🤖 Auto-remediation
-- 🧪 Chaos engineering
+🔍 Structured Logs
+📊 Metrics
+🧵 Tracing
+🚨 Infra Alerting   
+📈 SLO Alerting      ← WE ARE HERE
+🤖 Auto-remediation
+🧪 Chaos engineering
