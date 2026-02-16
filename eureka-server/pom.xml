@@ -9,18 +9,23 @@
 		<groupId>com.kafka_implementation</groupId>
 		<artifactId>kafka-microservices</artifactId>
 		<version>1.0.0</version>
-		<relativePath>../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>eureka-server</artifactId>
-	<version>-1.0.0</version>
 	<name>Service Registry</name>
-	<description>Eureka Server</description>
 
-	<properties>
-		<java.version>21</java.version>
-		<spring-cloud.version>2023.0.3</spring-cloud.version>
-	</properties>
+	<!-- Spring Cloud BOM -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>2023.0.3</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 
