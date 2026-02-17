@@ -37,7 +37,8 @@ public class KafkaProducerConfig {
     }
 
     @Bean
-    public KafkaTemplate<String, DomainEvent> kafkaTemplate() {
-        return new KafkaTemplate<>(producerFactory());
+    public KafkaTemplate<String, DomainEvent> kafkaTemplate(
+            ProducerFactory<String, DomainEvent> producerFactory) {
+        return new KafkaTemplate<>(producerFactory);
     }
 }

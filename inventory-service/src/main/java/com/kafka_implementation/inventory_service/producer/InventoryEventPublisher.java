@@ -13,9 +13,10 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class InventoryEventPublisher {
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final KafkaTemplate<String, DomainEvent> kafkaTemplate;
 
-    public InventoryEventPublisher(KafkaTemplate<String, Object> kafkaTemplate) {
+    public InventoryEventPublisher(
+            KafkaTemplate<String, DomainEvent> kafkaTemplate) {
         this.kafkaTemplate = kafkaTemplate;
     }
 
