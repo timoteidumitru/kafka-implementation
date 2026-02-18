@@ -6,6 +6,7 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,7 +17,7 @@ public class InventoryEventPublisher {
     private final KafkaTemplate<String, DomainEvent> kafkaTemplate;
 
     public InventoryEventPublisher(
-            KafkaTemplate<String, DomainEvent> kafkaTemplate) {
+            @Qualifier("inventoryKafkaTemplate") KafkaTemplate<String, DomainEvent> kafkaTemplate) {
         this.kafkaTemplate = kafkaTemplate;
     }
 

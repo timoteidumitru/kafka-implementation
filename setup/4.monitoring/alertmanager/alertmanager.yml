@@ -9,3 +9,9 @@ route:
 
 receivers:
   - name: "default-receiver"
+    email_configs:
+      - to: "devops@eu.com"
+        from: "alertmanager@eu.com"
+        smarthost: "smtp.eu.com:587"
+        auth_username: "alertmanager@eu.com"
+        auth_password: "SECRET_PASSWORD"

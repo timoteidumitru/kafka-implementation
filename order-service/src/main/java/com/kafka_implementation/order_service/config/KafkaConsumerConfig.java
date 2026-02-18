@@ -1,7 +1,6 @@
 package com.kafka_implementation.order_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
@@ -22,17 +21,11 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
-
-        JsonDeserializer<Object> jsonDeserializer =
-                new JsonDeserializer<>(objectMapper);
-
+        JsonDeserializer<Object> jsonDeserializer = new JsonDeserializer<>(objectMapper);
         jsonDeserializer.addTrustedPackages("*");
-
-        ErrorHandlingDeserializer<Object> valueDeserializer =
-                new ErrorHandlingDeserializer<>(jsonDeserializer);
+        ErrorHandlingDeserializer<Object> valueDeserializer = new ErrorHandlingDeserializer<>(jsonDeserializer);
 
         Map<String, Object> props = new HashMap<>();
-
         return new DefaultKafkaConsumerFactory<>(
                 props,
                 new StringDeserializer(),
@@ -46,33 +39,21 @@ public class KafkaConsumerConfig {
             ConsumerFactory<String, Object> consumerFactory,
             DefaultErrorHandler errorHandler
     ) {
-
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
-
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
         factory.setConcurrency(3);
-
         return factory;
     }
 
     @Bean
     public DefaultErrorHandler errorHandler(KafkaTemplate<Object, Object> template) {
-
         DeadLetterPublishingRecoverer recoverer =
                 new DeadLetterPublishingRecoverer(
                         template,
-                        (ConsumerRecord<?, ?> record, Exception ex) ->
-                                new TopicPartition(
-                                        record.topic() + ".DLT",
-                                        record.partition()
-                                )
+                        (record, ex) -> new TopicPartition(record.topic() + ".DLT", record.partition())
                 );
-
-        return new DefaultErrorHandler(
-                recoverer,
-                new FixedBackOff(1000L, 3) // retry 3 times
-        );
+        return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3));
     }
 }

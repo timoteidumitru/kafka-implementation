@@ -15,9 +15,7 @@ public class KafkaProducerConfig {
 
     @Bean
     public ProducerFactory<String, Object> producerFactory(ObjectMapper objectMapper) {
-
         Map<String, Object> props = new HashMap<>();
-
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.RETRIES_CONFIG, 5);
 

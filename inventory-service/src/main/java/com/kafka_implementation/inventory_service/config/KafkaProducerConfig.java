@@ -10,6 +10,7 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.support.serializer.JsonSerializer;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,23 +23,23 @@ public class KafkaProducerConfig {
         this.kafkaProperties = kafkaProperties;
     }
 
+    // ProducerFactory for DomainEvent
     @Bean
-    public ProducerFactory<String, DomainEvent> producerFactory() {
+    public ProducerFactory<String, DomainEvent> inventoryProducerFactory() {
         Map<String, Object> props = new HashMap<>();
 
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.getBootstrapServers());
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.RETRIES_CONFIG, 5);
-        props.put(ProducerConfig.LINGER_MS_CONFIG, 1);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
 
         return new DefaultKafkaProducerFactory<>(props);
     }
 
+    // KafkaTemplate bean for InventoryEventPublisher
     @Bean
-    public KafkaTemplate<String, DomainEvent> kafkaTemplate(
-            ProducerFactory<String, DomainEvent> producerFactory) {
-        return new KafkaTemplate<>(producerFactory);
+    public KafkaTemplate<String, DomainEvent> inventoryKafkaTemplate() {
+        return new KafkaTemplate<>(inventoryProducerFactory());
     }
 }

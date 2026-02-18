@@ -2,18 +2,8 @@ server:
   port: 8084
 
 spring:
-  profiles:
-    active: docker
-
   application:
     name: inventory-service
-
-  jpa:
-    hibernate:
-      ddl-auto: update
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
 
   datasource:
     url: jdbc:mysql://mysql-db:3306/inventory_db
@@ -24,10 +14,15 @@ spring:
       initialization-fail-timeout: 60000
       connection-timeout: 30000
 
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
   kafka:
     bootstrap-servers: kafka:9092
-    properties:
-      spring.kafka.observation.enabled: true
     consumer:
       group-id: inventory-service
       enable-auto-commit: false
@@ -48,10 +43,6 @@ eureka:
       defaultZone: http://eureka-server:8761/eureka
 
 management:
-  tracing:
-    enabled: true
-    sampling:
-      probability: 1.0
   endpoints:
     web:
       exposure:
@@ -59,12 +50,7 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-  zipkin:
-    tracing:
-      endpoint: http://zipkin:9411/api/v2/spans
 
 logging:
   level:
     org.springframework.web: DEBUG
-    org.springframework.web.servlet: DEBUG
-    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

@@ -1,4 +1,3 @@
-
 services:
   eureka-server:
     build: ../../eureka-server
