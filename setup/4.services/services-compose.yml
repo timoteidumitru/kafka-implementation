@@ -8,6 +8,7 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_SERVER: http://eureka-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/orders_db
       SPRING_DATASOURCE_USERNAME: admin
@@ -24,6 +25,7 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_SERVER: http://eureka-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/payments_db
       SPRING_DATASOURCE_USERNAME: admin
@@ -40,6 +42,7 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_SERVER: http://eureka-server:8761/eureka
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
@@ -53,11 +56,11 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_SERVER: http://eureka-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/inventory_db
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: admin
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
 
