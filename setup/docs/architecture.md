@@ -3,14 +3,18 @@ order-platform/
 │
 ├── pom.xml                      # Parent POM
 │
-├── infrastructure/
-│   ├── docker-compose.yml       # Kafka, Zookeeper, Prometheus, Grafana
-│   ├── kafka/
-│   │   └── topics.sh
-│   └── monitoring/
-│       ├── prometheus.yml
-│       └── grafana-dashboards/
-│
+├── setup/
+│   ├── 1.infrastructure/      
+│   │    ├── mysql/
+│   │    └── infra-compose.yml
+│   ├── 2.platform/
+│   │    └── platform-compose.yml
+│   └── 3.monitoring/
+│   │    ├── alertmanager/
+│   │    ├── prometheus/
+│   │    └── monitor-compose.yml
+│   └── 4.services/
+│        └── services-compose.yml
 ├── eureka-server/
 │   └── pom.xml
 │
@@ -20,10 +24,11 @@ order-platform/
 ├── shared-events/               # 🔥 CRITICAL MODULE
 │   ├── pom.xml
 │   └── src/main/java/
-│       └── com/example/events/
+│       └── com/kafka_implementation/shared_events/
 │           ├── base/
 │           │   ├── DomainEvent.java
 │           │   ├── EventMetadata.java
+│           │   ├── EventMetadataFactory.java
 │           │   └── EventType.java
 │           │
 │           ├── order/
@@ -47,9 +52,6 @@ order-platform/
 ├── order-service/
 ├── payment-service/
 ├── inventory-service/
-├── notification-service/
-└── docs/
-    ├── architecture.md
-    └── saga-flows.md
+└── notification-service/
     
 ```

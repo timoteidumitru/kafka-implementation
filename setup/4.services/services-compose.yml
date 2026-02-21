@@ -8,11 +8,14 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_APPLICATION_NAME: order-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      EUREKA_SERVER: http://eureka-server:8761/eureka
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/orders_db
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/orders_db
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.MySQL8Dialect
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
 
@@ -25,12 +28,13 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_APPLICATION_NAME: payment-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      EUREKA_SERVER: http://eureka-server:8761/eureka
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/payments_db
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: admin
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
 
   notification-service:
@@ -42,9 +46,10 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_APPLICATION_NAME: notification-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      EUREKA_SERVER: http://eureka-server:8761/eureka
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
 
   inventory-service:
@@ -56,14 +61,20 @@ services:
       - kafka-network
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_APPLICATION_NAME: inventory-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      EUREKA_SERVER: http://eureka-server:8761/eureka
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/inventory_db
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: admin
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
 
 networks:
   kafka-network:
     external: true
+
+
+#  docker-compose -f services-compose.yml down --volumes --remove-orphans
+#  docker-compose -f services-compose.yml build --no-cache
+#  docker-compose -f services-compose.yml up
