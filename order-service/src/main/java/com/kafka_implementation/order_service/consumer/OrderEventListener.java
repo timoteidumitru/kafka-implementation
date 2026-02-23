@@ -11,14 +11,14 @@ import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
-
-import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+
+import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
+import static com.kafka_implementation.shared_events.topics.Topics.*;
 
 @Component
 public class OrderEventListener {
@@ -32,7 +32,8 @@ public class OrderEventListener {
     public OrderEventListener(
             OrderService orderService,
             OrderEventPublisher publisher,
-            IdempotencyGuard idempotencyGuard) {
+            IdempotencyGuard idempotencyGuard
+    ) {
         this.orderService = orderService;
         this.publisher = publisher;
         this.idempotencyGuard = idempotencyGuard;
@@ -41,20 +42,13 @@ public class OrderEventListener {
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @Bulkhead(name = "order-kafka")
-    @KafkaListener(topics = "payment.events", groupId = "order-service")
+    @KafkaListener(topics = PAYMENT_EVENTS_V1, groupId = "order-service")
     public void onPaymentFailed(PaymentFailedEvent event) {
-
         MDC.put("eventId", event.metadata().eventId().toString());
-        MDC.put("correlationId", event.metadata().correlationId().toString());
         MDC.put("orderId", event.orderId().toString());
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) {
-                log.info("Duplicate PaymentFailedEvent ignored");
-                return;
-            }
-
-            log.warn("Handling PaymentFailedEvent: {}", event.reason());
+            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
 
             orderService.cancel(event.orderId());
 
@@ -66,8 +60,6 @@ public class OrderEventListener {
                     )
             );
 
-            log.info("Order marked as FAILED");
-
         } finally {
             MDC.clear();
         }
@@ -76,21 +68,12 @@ public class OrderEventListener {
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @Bulkhead(name = "order-kafka")
-    @KafkaListener(topics = "inventory.events", groupId = "order-service")
+    @KafkaListener(topics = INVENTORY_EVENTS_V1, groupId = "order-service")
     public void onInventoryFailed(InventoryReservationFailedEvent event) {
-
         MDC.put("eventId", event.metadata().eventId().toString());
-        MDC.put("correlationId", event.metadata().correlationId().toString());
-        MDC.put("orderId", event.orderId().toString());
-
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) {
-                log.info("Duplicate InventoryReservationFailedEvent ignored");
-                return;
-            }
-
-            log.warn("Inventory reservation failed: {}", event.reason());
+            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
 
             orderService.cancel(event.orderId());
 
@@ -102,8 +85,6 @@ public class OrderEventListener {
                     )
             );
 
-            log.info("Order marked as FAILED");
-
         } finally {
             MDC.clear();
         }
@@ -112,20 +93,12 @@ public class OrderEventListener {
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
     @Bulkhead(name = "order-kafka")
-    @KafkaListener(topics = "inventory.events", groupId = "order-service")
+    @KafkaListener(topics = INVENTORY_EVENTS_V1, groupId = "order-service")
     public void onInventoryReserved(InventoryReservedEvent event) {
-
         MDC.put("eventId", event.metadata().eventId().toString());
-        MDC.put("correlationId", event.metadata().correlationId().toString());
-        MDC.put("orderId", event.orderId().toString());
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) {
-                log.info("Duplicate InventoryReservedEvent ignored");
-                return;
-            }
-
-            log.info("Completing order");
+            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
 
             orderService.complete(event.orderId());
 
@@ -136,17 +109,12 @@ public class OrderEventListener {
                     )
             );
 
-            log.info("Order COMPLETED successfully");
-
         } finally {
             MDC.clear();
         }
     }
 
     private void fallback(Object event, Throwable ex) {
-        log.error(
-                "Kafka consumer rejected event due to resilience policy",
-                ex
-        );
+        log.error("Kafka consumer rejected event due to resilience policy", ex);
     }
 }

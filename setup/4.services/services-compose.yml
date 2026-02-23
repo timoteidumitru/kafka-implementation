@@ -18,6 +18,12 @@ services:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      # Kafka topics
+      ORDER_EVENTS: order.events.v1
+      ORDER_EVENTS_DLT: order.events.v1.DLT
+      PAYMENT_EVENTS: payment.events.v1
+      INVENTORY_EVENTS: inventory.events.v1
+      NOTIFICATION_EVENTS: notification.events.v1
 
   payment-service:
     build: ../../payment-service
@@ -36,6 +42,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: admin
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      # Kafka topics
+      ORDER_EVENTS: order.events.v1
+      ORDER_EVENTS_DLT: order.events.v1.DLT
+      PAYMENT_EVENTS: payment.events.v1
+      INVENTORY_EVENTS: inventory.events.v1
+      NOTIFICATION_EVENTS: notification.events.v1
 
   notification-service:
     build: ../../notification-service
@@ -51,6 +63,12 @@ services:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      # Kafka topics
+      ORDER_EVENTS: order.events.v1
+      ORDER_EVENTS_DLT: order.events.v1.DLT
+      PAYMENT_EVENTS: payment.events.v1
+      INVENTORY_EVENTS: inventory.events.v1
+      NOTIFICATION_EVENTS: notification.events.v1
 
   inventory-service:
     build: ../../inventory-service
@@ -69,12 +87,14 @@ services:
       SPRING_DATASOURCE_PASSWORD: admin
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,metrics,info
       MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      # Kafka topics
+      ORDER_EVENTS: order.events.v1
+      ORDER_EVENTS_DLT: order.events.v1.DLT
+      PAYMENT_EVENTS: payment.events.v1
+      INVENTORY_EVENTS: inventory.events.v1
+      NOTIFICATION_EVENTS: notification.events.v1
+
 
 networks:
   kafka-network:
     external: true
-
-
-#  docker-compose -f services-compose.yml down --volumes --remove-orphans
-#  docker-compose -f services-compose.yml build --no-cache
-#  docker-compose -f services-compose.yml up

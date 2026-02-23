@@ -19,15 +19,27 @@ spring:
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
     producer:
+      acks: all
+      retries: 5
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
     consumer:
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:order-service}
       auto-offset-reset: ${SPRING_KAFKA_AUTO_OFFSET_RESET:earliest}
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
+
+# 🔧 Application-level property-driven topics
+app:
+  topics:
+    order-events: order.events.v1
+    order-events-dlt: order.events.v1.DLT
+    payment-events: payment.events.v1
+    inventory-events: inventory.events.v1
+    notification-events: notification.events.v1
 
 eureka:
   client:
