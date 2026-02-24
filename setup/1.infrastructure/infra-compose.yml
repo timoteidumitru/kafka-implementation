@@ -34,12 +34,22 @@ services:
       - kafka-network
     volumes:
       - kafka-logs:/var/lib/kafka/data
-      - ./kafka/create-topics.sh:/create-topics.sh
-    command: ["/bin/bash", "/create-topics.sh"]
     healthcheck:
       test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
       interval: 10s
       retries: 10
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.1
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka-network
+    volumes:
+      - ./kafka/create-topics.sh:/create-topics.sh
+    entrypoint: [ "/bin/bash", "/create-topics.sh" ]
 
   redis:
     image: redis:7

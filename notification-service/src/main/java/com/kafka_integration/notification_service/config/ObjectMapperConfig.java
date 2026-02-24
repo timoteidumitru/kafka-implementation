@@ -10,7 +10,7 @@ public class ObjectMapperConfig {
 
     @Bean
     public ObjectMapper objectMapper() {
-        return EventObjectMapperFactory.create();
+        return EventObjectMapperFactory.get();
     }
 }
 

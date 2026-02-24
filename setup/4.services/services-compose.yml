@@ -10,7 +10,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_APPLICATION_NAME: order-service
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/orders_db
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/orders_db
       SPRING_DATASOURCE_USERNAME: admin
       SPRING_DATASOURCE_PASSWORD: admin
       SPRING_JPA_HIBERNATE_DDL_AUTO: update

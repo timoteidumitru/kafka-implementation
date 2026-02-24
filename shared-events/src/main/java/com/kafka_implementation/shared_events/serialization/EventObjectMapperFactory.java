@@ -12,7 +12,7 @@ public final class EventObjectMapperFactory {
             .addModule(new JavaTimeModule())
             .build();
 
-    public static ObjectMapper getInstance() {
+    public static ObjectMapper get() {
         return OBJECT_MAPPER;
     }
 }

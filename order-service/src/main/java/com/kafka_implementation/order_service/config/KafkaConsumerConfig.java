@@ -2,6 +2,8 @@ package com.kafka_implementation.order_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.TopicPartition;
+import com.kafka_implementation.shared_events.base.DomainEvent;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,7 +17,6 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.util.backoff.FixedBackOff;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -58,11 +59,11 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public DefaultErrorHandler errorHandler(KafkaTemplate<Object, Object> template) {
+    public DefaultErrorHandler errorHandler(KafkaTemplate<String, DomainEvent> template) {
         DeadLetterPublishingRecoverer recoverer =
                 new DeadLetterPublishingRecoverer(
                         template,
-                        (record, ex) -> new org.apache.kafka.common.TopicPartition(record.topic() + ".DLT", record.partition())
+                        (record, ex) -> new TopicPartition(record.topic() + ".DLT", record.partition())
                 );
         return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3));
     }
