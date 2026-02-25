@@ -6,7 +6,7 @@ spring:
     name: ${SPRING_APPLICATION_NAME:order-service}
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/orders_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-db:3306/orders_db}
     username: ${SPRING_DATASOURCE_USERNAME:admin}
     password: ${SPRING_DATASOURCE_PASSWORD:admin}
     driver-class-name: com.mysql.cj.jdbc.Driver

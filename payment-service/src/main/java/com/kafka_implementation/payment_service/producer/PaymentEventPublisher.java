@@ -1,59 +1,41 @@
 package com.kafka_implementation.payment_service.producer;
 
-import com.kafka_implementation.payment_service.config.KafkaTopicsConfig;
 import com.kafka_implementation.shared_events.base.DomainEvent;
 import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.retry.annotation.Retry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+
+import static com.kafka_implementation.shared_events.topics.Topics.PAYMENT_EVENTS_V1;
 
 @Slf4j
 @Component
 public class PaymentEventPublisher {
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final KafkaTemplate<String, DomainEvent> kafkaTemplate;
 
-    public PaymentEventPublisher(KafkaTemplate<String, Object> kafkaTemplate) {
+    public PaymentEventPublisher(KafkaTemplate<String, DomainEvent> kafkaTemplate) {
         this.kafkaTemplate = kafkaTemplate;
     }
 
-    @Retry(name = "payment-producer")
-    @CircuitBreaker(name = "payment-producer", fallbackMethod = "fallback")
     public void publishPaymentCompleted(PaymentCompletedEvent event) {
-
-        kafkaTemplate.send(
-                KafkaTopicsConfig.PAYMENT_EVENTS,
-                event.getAggregateId().toString(),
-                event
-        );
-
-        log.info("✅ PaymentCompletedEvent published for orderId={}", event.orderId());
+        publish(event);
     }
 
-    @Retry(name = "payment-producer")
-    @CircuitBreaker(name = "payment-producer", fallbackMethod = "fallback")
     public void publishPaymentFailed(PaymentFailedEvent event) {
+        publish(event);
+    }
 
+    private void publish(DomainEvent event) {
         kafkaTemplate.send(
-                KafkaTopicsConfig.PAYMENT_EVENTS,
+                PAYMENT_EVENTS_V1,
                 event.getAggregateId().toString(),
                 event
         );
 
-        log.warn("⚠️ PaymentFailedEvent published for orderId={}, reason={}",
-                event.orderId(), event.reason());
-    }
-
-    @SuppressWarnings("unused")
-    private void fallback(DomainEvent event, Throwable ex) {
-        log.error(
-                "❌ Failed to publish {} event for aggregateId={}",
+        log.info("Payment event {} published for aggregateId={}",
                 event.getEventType(),
-                event.getAggregateId(),
-                ex
-        );
+                event.getAggregateId());
     }
 }

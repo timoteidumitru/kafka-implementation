@@ -1,16 +1,29 @@
 package com.kafka_implementation.order_service.service;
 
+import com.kafka_implementation.order_service.domain.ProcessedEvent;
+import com.kafka_implementation.order_service.repository.ProcessedEventRepository;
+import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Component;
-import java.util.Set;
+
+import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class IdempotencyGuard {
 
-    private final Set<UUID> processedEvents = ConcurrentHashMap.newKeySet();
+    private final ProcessedEventRepository repository;
 
+    public IdempotencyGuard(ProcessedEventRepository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional
     public boolean alreadyProcessed(UUID eventId) {
-        return !processedEvents.add(eventId);
+        if (repository.existsById(eventId)) {
+            return true;
+        }
+
+        repository.save(new ProcessedEvent(eventId, Instant.now()));
+        return false;
     }
 }

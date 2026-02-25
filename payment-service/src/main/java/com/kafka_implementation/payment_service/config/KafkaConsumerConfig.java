@@ -1,7 +1,8 @@
 package com.kafka_implementation.payment_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
+import com.kafka_implementation.shared_events.base.DomainEvent;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,8 @@ import java.util.Map;
 @Configuration
 public class KafkaConsumerConfig {
 
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
+
     @Bean
     public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
 
@@ -31,6 +34,17 @@ public class KafkaConsumerConfig {
                 new ErrorHandlingDeserializer<>(jsonDeserializer);
 
         Map<String, Object> props = new HashMap<>();
+
+        props.put(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                System.getenv().getOrDefault(
+                        "SPRING_KAFKA_BOOTSTRAP_SERVERS",
+                        DEFAULT_BOOTSTRAP_SERVERS
+                )
+        );
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "payment-service-group");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
         return new DefaultKafkaConsumerFactory<>(
                 props,
@@ -52,17 +66,20 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
         factory.setConcurrency(3);
+        factory.getContainerProperties().setPollTimeout(3000);
 
         return factory;
     }
 
     @Bean
-    public DefaultErrorHandler errorHandler(KafkaTemplate<Object, Object> template) {
+    public DefaultErrorHandler errorHandler(
+            KafkaTemplate<String, DomainEvent> template
+    ) {
 
         DeadLetterPublishingRecoverer recoverer =
                 new DeadLetterPublishingRecoverer(
                         template,
-                        (ConsumerRecord<?, ?> record, Exception ex) ->
+                        (record, ex) ->
                                 new TopicPartition(
                                         record.topic() + ".DLT",
                                         record.partition()

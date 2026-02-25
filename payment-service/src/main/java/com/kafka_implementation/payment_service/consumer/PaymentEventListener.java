@@ -1,6 +1,7 @@
 package com.kafka_implementation.payment_service.consumer;
 
 import com.kafka_implementation.payment_service.producer.PaymentEventPublisher;
+import com.kafka_implementation.payment_service.service.IdempotencyGuard;
 import com.kafka_implementation.payment_service.service.PaymentService;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentCompletedEvent;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 
 import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
+import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
 
 @Component
 public class PaymentEventListener {
@@ -25,29 +27,37 @@ public class PaymentEventListener {
 
     private final PaymentService paymentService;
     private final PaymentEventPublisher publisher;
+    private final IdempotencyGuard idempotencyGuard;
 
     public PaymentEventListener(
             PaymentService paymentService,
-            PaymentEventPublisher publisher) {
+            PaymentEventPublisher publisher,
+            IdempotencyGuard idempotencyGuard
+    ) {
         this.paymentService = paymentService;
         this.publisher = publisher;
+        this.idempotencyGuard = idempotencyGuard;
     }
 
-    @KafkaListener(topics = "order.events", groupId = "payment-service")
     @Retry(name = "payment-kafka")
     @CircuitBreaker(name = "payment-kafka", fallbackMethod = "fallback")
-    @Bulkhead(
-            name = "payment-kafka",
-            type = Bulkhead.Type.THREADPOOL
-    )
+    @Bulkhead(name = "payment-kafka")
+    @KafkaListener(topics = ORDER_EVENTS_V1, groupId = "payment-service")
     public void onOrderCreated(OrderCreatedEvent event) {
 
-        try {
-            // ===== MDC context =====
-            MDC.put("eventId", event.metadata().eventId().toString());
-            MDC.put("correlationId", event.metadata().correlationId().toString());
-            MDC.put("orderId", event.orderId().toString());
+        UUID eventId = event.metadata().eventId();
 
+        // ✅ Idempotency check
+        if (idempotencyGuard.alreadyProcessed(eventId)) {
+            log.info("Skipping already processed eventId={}", eventId);
+            return;
+        }
+
+        MDC.put("eventId", eventId.toString());
+        MDC.put("correlationId", event.metadata().correlationId().toString());
+        MDC.put("orderId", event.orderId().toString());
+
+        try {
             log.info(
                     "Processing payment for orderId={}, productId={}, quantity={}, price={}",
                     event.orderId(),
@@ -73,25 +83,23 @@ public class PaymentEventListener {
                     )
             );
 
-            log.info("Payment completed successfully");
+            log.info("Payment completed successfully for orderId={}", event.orderId());
 
         } finally {
             MDC.clear();
         }
     }
 
-    /**
-     * CircuitBreaker / Retry / Bulkhead fallback
-     */
     private void fallback(OrderCreatedEvent event, Throwable ex) {
 
-        try {
-            MDC.put("eventId", event.metadata().eventId().toString());
-            MDC.put("correlationId", event.metadata().correlationId().toString());
-            MDC.put("orderId", event.orderId().toString());
+        MDC.put("eventId", event.metadata().eventId().toString());
+        MDC.put("correlationId", event.metadata().correlationId().toString());
+        MDC.put("orderId", event.orderId().toString());
 
+        try {
             log.error(
-                    "Payment failed or throttled. Reason={}",
+                    "Payment failed for orderId={} due to {}",
+                    event.orderId(),
                     ex.getMessage(),
                     ex
             );
