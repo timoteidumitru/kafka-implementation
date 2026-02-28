@@ -3,31 +3,44 @@ server:
 
 spring:
   application:
-    name: inventory-service
+    name: ${SPRING_APPLICATION_NAME:inventory-service}
 
   datasource:
-    url: jdbc:mysql://mysql:3306/inventory_db
-    username: root
-    password: root
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-db:3306/inventory_db}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:admin}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   kafka:
-    bootstrap-servers: kafka:9092
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
     producer:
+      acks: all
+      retries: 5
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
     consumer:
-      group-id: inventory-service
-      auto-offset-reset: earliest
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:inventory-service}
+      auto-offset-reset: ${SPRING_KAFKA_AUTO_OFFSET_RESET:earliest}
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
 
+# 🔧 Application-level property-driven topics
+app:
+  topics:
+    order-events: order.events.v1
+    order-events-dlt: order.events.v1.DLT
+    payment-events: payment.events.v1
+    inventory-events: inventory.events.v1
+    inventory-events-dlt: inventory.events.v1.DLT
+    notification-events: notification.events.v1
+
 eureka:
   client:
     service-url:
-      defaultZone: http://eureka-server:8761/eureka
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://eureka-server:8761/eureka}
 
 management:
   endpoints:
@@ -35,5 +48,8 @@ management:
       exposure:
         include: health,info,metrics,prometheus
   metrics:
+    export:
+      prometheus:
+        enabled: true
     tags:
       application: ${spring.application.name}

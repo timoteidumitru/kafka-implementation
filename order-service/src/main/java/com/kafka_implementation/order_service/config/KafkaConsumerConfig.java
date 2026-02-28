@@ -23,7 +23,7 @@ import java.util.Map;
 @Configuration
 public class KafkaConsumerConfig {
 
-    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"; // fallback if env not set
+    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
 
     @Bean
     public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
@@ -35,7 +35,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, System.getenv().getOrDefault("SPRING_KAFKA_BOOTSTRAP_SERVERS", DEFAULT_BOOTSTRAP_SERVERS));
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "order-service-group");
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // industrial-grade: manual commit control
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
         return new DefaultKafkaConsumerFactory<>(
                 props,

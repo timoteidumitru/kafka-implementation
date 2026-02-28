@@ -25,8 +25,8 @@ public class InventoryService {
         InventoryItem item = repository.findByProductId(productId)
                 .orElseThrow(() -> new IllegalStateException("Product not found"));
 
-        item.reserve(quantity); // domain logic (throws if insufficient stock)
-        repository.save(item);
+        item.reserve(quantity);
+
     }
 }
 

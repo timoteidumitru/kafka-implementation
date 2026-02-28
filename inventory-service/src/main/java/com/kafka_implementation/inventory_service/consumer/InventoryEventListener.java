@@ -12,6 +12,7 @@ import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,9 @@ public class InventoryEventListener {
     private final InventoryEventPublisher publisher;
     private final IdempotencyGuard idempotencyGuard;
 
+    @Value("${app.topics.payment-events}")
+    private String paymentEventsTopic;
+
     public InventoryEventListener(
             InventoryService inventoryService,
             InventoryEventPublisher publisher,
@@ -35,17 +39,16 @@ public class InventoryEventListener {
         this.idempotencyGuard = idempotencyGuard;
     }
 
-    @KafkaListener(topics = "payment.events", groupId = "inventory-service")
+    @KafkaListener(topics = "${app.topics.payment-events}", groupId = "inventory-service")
     @Retry(name = "inventory-kafka")
     @CircuitBreaker(name = "inventory-kafka", fallbackMethod = "fallback")
     @Bulkhead(
             name = "inventory-kafka",
             type = Bulkhead.Type.THREADPOOL
     )
-    public void onPaymentCompleted(PaymentCompletedEvent event) {
+    public void handlePaymentCompleted(PaymentCompletedEvent event) {
 
         try {
-            // ===== MDC context =====
             MDC.put("eventId", event.metadata().eventId().toString());
             MDC.put("correlationId", event.metadata().correlationId().toString());
             MDC.put("orderId", event.orderId().toString());
@@ -63,10 +66,7 @@ public class InventoryEventListener {
                     event.quantity()
             );
 
-            inventoryService.reserveStock(
-                    event.productId(),
-                    event.quantity()
-            );
+            inventoryService.reserveStock(event.productId(), event.quantity());
 
             publisher.publishReserved(
                     new InventoryReservedEvent(
@@ -85,7 +85,7 @@ public class InventoryEventListener {
     }
 
     /**
-     * CircuitBreaker / Retry / Bulkhead fallback
+     * Fallback for CircuitBreaker / Retry / Bulkhead
      */
     private void fallback(PaymentCompletedEvent event, Throwable ex) {
 
@@ -95,10 +95,7 @@ public class InventoryEventListener {
             MDC.put("orderId", event.orderId().toString());
             MDC.put("productId", event.productId().toString());
 
-            log.error(
-                    "Inventory reservation failed or throttled",
-                    ex
-            );
+            log.error("Inventory reservation failed or throttled", ex);
 
             publisher.publishFailed(
                     new InventoryReservationFailedEvent(
