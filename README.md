@@ -1,384 +1,278 @@
 # Distributed Event-Driven Microservices Platform
 
-A **production-grade distributed microservices system** built with **Java 21**, **Spring Boot 3**, **Spring Cloud**, **Apache Kafka**, and **Docker**.
-The project demonstrates **event-driven architecture**, **Saga-style workflows**, **resilience patterns**, and **full containerized deployment** using a **multi-module Maven setup**.
+A production-grade distributed microservices system built with Java 21,
+Spring Boot 3, Spring Cloud, Apache Kafka, Docker, Prometheus, and
+Grafana.
 
----
+This project demonstrates:
 
-## High-Level Architecture
+-   Event-driven architecture (EDA)
+-   Saga-style distributed workflows
+-   Resilience patterns (Retry, Circuit Breaker, Bulkhead)
+-   Observability-first design
+-   Full Docker-based containerization
+-   Industrial-grade layered deployment structure
 
-**Core principles:**
+------------------------------------------------------------------------
 
-* Event-driven communication (Kafka)
-* Loose coupling between services
-* Fault tolerance and resilience
-* Observability-first design
+# Architecture Overview
 
-**System components:**
+## Architectural Style
 
-* API Gateway (single entry point)
-* Eureka Service Registry
-* Order Service
-* Payment Service
-* Inventory Service
-* Notification Service
-* Shared Events module (Kafka contracts)
-* Kafka + Zookeeper
-* MySQL (per-service persistence)
-* Redis (rate limiting / resilience support)
+-   Microservices
+-   Event-driven communication (Kafka)
+-   Database-per-service
+-   API Gateway pattern
+-   Service discovery (Eureka)
+-   Layered containerized infrastructure
 
----
+------------------------------------------------------------------------
 
-## Key Components
+# System Layers (Industrial Deployment Model)
 
-### 1. API Gateway
+The system is organized into 4 logical layers:
 
-**Purpose**
-Acts as the **single entry point** into the system.
+## 1️⃣ Infrastructure Layer
 
-**Technology**
-Spring Cloud Gateway (Reactive)
+Responsible for foundational services.
 
-**Responsibilities**
+Includes: - Kafka - Zookeeper - MySQL (per-service databases) - Redis -
+Prometheus - Grafana
 
-* Route incoming requests to backend services
-* Apply resilience patterns globally
-* Integrate with Eureka for service discovery
+## 2️⃣ Platform Layer
 
-**Exposed Endpoint**
+Core distributed system components.
 
-```
-POST /api/orders
-```
+Includes: - Eureka Server - API Gateway
 
-**Resilience**
+## 3️⃣ Business Services Layer
 
-* Retry
-* Circuit Breaker
-* Bulkhead
+Domain microservices.
 
----
+Includes: - Order Service - Payment Service - Inventory Service -
+Notification Service
 
-### 2. Service Registry (Eureka)
+## 4️⃣ Shared Contracts Layer
 
-**Purpose**
-Provides **dynamic service discovery** and health awareness.
+Shared event models (Kafka contracts). - shared-events module - Not
+deployed - No Docker image
 
-**Technology**
-Spring Cloud Netflix Eureka Server
+------------------------------------------------------------------------
 
-**Registered Clients**
+# Kafka Messaging Architecture
 
-* API Gateway
-* Order Service
-* Payment Service
-* Inventory Service
-* Notification Service
+## Topics
 
----
+-   order.events
+-   payment.events
+-   inventory.events
 
-### 3. Order Service
+## Dead Letter Topics (DLT)
 
-**Purpose**
-Handles order creation and orchestrates the business flow via events.
+Each topic automatically supports:
 
-**Responsibilities**
+-   order.events.DLT
+-   payment.events.DLT
+-   inventory.events.DLT
 
-* Receive requests from API Gateway
-* Publish `order.events` to Kafka
-* Consume `payment.events`
-* Maintain transactional consistency
-* Enforce idempotency
+DLTs are used when message processing fails after retries.
 
-**Kafka Listener with Resilience**
+## Consumer Groups
 
-```java
-@Retry(name = "order-kafka")
-@CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
-@Bulkhead(name = "order-kafka")
-@KafkaListener(topics = "payment.events", groupId = "order-service")
-```
+-   order-service-group
+-   payment-service-group
+-   inventory-service-group
+-   notification-service-group
 
----
+Each service runs in its own consumer group for isolation.
 
-### 4. Payment Service
+------------------------------------------------------------------------
 
-**Purpose**
-Validates and processes payments.
+# Databases (Database-per-Service)
 
-**Responsibilities**
+-   orders_db
+-   payments_db
+-   inventory_db
 
-* Consume `order.events`
-* Execute payment logic
-* Persist payment state
-* Publish `payment.events`
+Each service owns its schema and data.
 
-**Guarantees**
+------------------------------------------------------------------------
 
-* Transactional processing
-* Idempotent event handling
-* Resilience4j protection
+# Observability Stack
 
----
+Metrics Flow:
 
-### 5. Inventory Service
+Spring Boot Actuator → Prometheus → Grafana
 
-**Purpose**
-Manages stock levels and reservations.
-
-**Responsibilities**
-
-* Consume `order.events`
-* Validate inventory availability
-* Reserve stock
-* Publish `inventory.events`
-* Persist inventory data in MySQL
-
----
-
-### 6. Notification Service
-
-**Purpose**
-Notifies users about order and payment outcomes.
-
-**Responsibilities**
-
-* Consume `payment.events`
-* Send notifications (email/SMS – extensible)
-
----
-
-### 7. Shared Events Module
-
-**Purpose**
-Defines **Kafka event contracts** shared across services.
-
-**Included Events**
-
-* Base events
-* Order events
-* Payment events
-* Inventory events
-
-**Kafka Topics**
-
-* `order.events`
-* `payment.events`
-* `inventory.events`
-
-> This module is **not deployed** as a service and does **not** have a Docker image.
-
----
-
-### 8. Messaging Layer (Kafka)
-
-**Purpose**
-Enables asynchronous, decoupled communication.
-
-**Features**
-
-* Topic-based messaging
-* Consumer groups per service
-* Fault tolerance via partitions
-
----
-
-### 9. Database Layer (MySQL)
-
-**Purpose**
-Persistent storage per service.
-
-**Databases**
-
-* Order Service → `orders_db`
-* Payment Service → `payments_db`
-* Inventory Service → `inventory_db`
-
-Each service owns its schema (Database-per-Service pattern).
-
----
-
-### 10. Containerization Strategy
-
-**Three-layer Docker Compose setup:**
-
-1. **Infrastructure**
-   Kafka, Zookeeper, MySQL, Redis
-2. **Platform**
-   Eureka Server, API Gateway
-3. **Services**
-   Business microservices
-
-This separation allows **independent startup, scaling, and troubleshooting**.
-
----
-
-## Project Structure
-
-```
-kafka-microservices/
-├── setup/
-│   ├── 1.infrastructure/
-│   │   └── docker-compose.yml
-│   ├── 2.platform/
-│   │   └── docker-compose.yml
-│   └── 3.services/
-│       └── docker-compose.yml
-├── eureka-server/
-├── api-gateway/
-├── order-service/
-├── payment-service/
-├── inventory-service/
-├── notification-service/
-├── shared-events/
-├── pom.xml
-└── .gitignore
-```
-
----
-
-## Getting Started (New Users)
-
-### Prerequisites
-
-* Java 21
-* Maven 3.9+
-* Docker & Docker Compose
-* Postman (or curl)
-
----
-
-## Running the System with Docker
-
-### 1️⃣ Start Infrastructure
-
-```bash
-cd setup/1.infrastructure
-docker compose up -d
-```
-
-Verify:
-
-* Kafka → `localhost:9092`
-* MySQL → `localhost:3306`
-* Redis → `localhost:6379`
-
----
-
-### 2️⃣ Start Platform Services
-
-```bash
-cd ../2.platform
-docker compose up -d
-```
-
-Access:
-
-* Eureka Dashboard → [http://localhost:8761](http://localhost:8761)
-* API Gateway → [http://localhost:8080](http://localhost:8080)
-
----
-
-### 3️⃣ Build & Start Microservices
-
-```bash
-mvn clean install
-cd setup/3.services
-docker compose up -d
-```
-
----
-
-## Verifying System Health
-
-### Eureka
-
-Visit:
-
-```
-http://localhost:8761
-```
-
-All services should appear as **UP**.
-
----
-
-### Actuator Health
+## Exposed Endpoints
 
 Each service exposes:
 
-```
-/actuator/health
-```
+-   /actuator/health
+-   /actuator/prometheus
+-   /actuator/metrics
+
+## Grafana Access
+
+Default:
+
+http://localhost:3000
+
+Default credentials:
+
+admin / admin
+
+------------------------------------------------------------------------
+
+# Running the System (Docker -- Recommended)
+
+## Step 1: Start Infrastructure
+
+cd setup/1.infrastructure docker compose up -d
+
+Includes Kafka, MySQL, Redis, Prometheus, Grafana.
+
+------------------------------------------------------------------------
+
+## Step 2: Start Platform Layer
+
+cd ../2.platform docker compose up -d
+
+Access:
+
+-   Eureka: http://localhost:8761
+-   Gateway: http://localhost:8080
+
+------------------------------------------------------------------------
+
+## Step 3: Build All Services
+
+From project root:
+
+mvn clean install
+
+------------------------------------------------------------------------
+
+## Step 4: Start Business Services
+
+cd setup/3.services docker compose up -d
+
+------------------------------------------------------------------------
+
+# Local Development Setup (Without Docker)
+
+## Requirements
+
+-   Java 21
+-   Maven 3.9+
+-   Docker (only for Kafka/MySQL if not installed locally)
+
+## Option A (Recommended Hybrid Mode)
+
+Run infrastructure with Docker only:
+
+docker compose -f setup/1.infrastructure/docker-compose.yml up -d
+
+Then run services locally via IDE.
+
+Each service must use:
+
+SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+or for local Kafka:
+
+SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+
+------------------------------------------------------------------------
+
+# Testing the System
+
+## Create Order
+
+POST http://localhost:8080/api/orders
+
+Body:
+
+{ "productId": "P-1001", "quantity": 1, "price": 199.99 }
+
+Flow:
+
+1.  Order Service publishes order.events
+2.  Payment Service processes payment
+3.  Inventory Service reserves stock
+4.  Notification Service reacts
+
+------------------------------------------------------------------------
+
+# Stress Testing (Load Testing)
+
+To observe behavior under load:
+
+## Option 1 -- Apache JMeter
+
+Create thread group: - 100--1000 users - Ramp-up 30 seconds - Loop 10
+times
+
+Target: POST /api/orders
+
+## Option 2 -- k6 (Recommended Modern Tool)
 
 Example:
 
-```
-http://localhost:8081/actuator/health
-```
+k6 run load-test.js
 
----
+Example script:
 
-## Testing with Postman
+import http from 'k6/http'; import { sleep } from 'k6';
 
-### Create an Order
+export default function () {
+http.post('http://localhost:8080/api/orders', JSON.stringify({
+productId: "P-1001", quantity: 1, price: 199.99 }), { headers: {
+'Content-Type': 'application/json' }, }); sleep(1); }
 
-```
-POST http://localhost:8080/api/orders
-Content-Type: application/json
-```
+------------------------------------------------------------------------
 
-Example payload:
+# Observing System Under Stress
 
-```json
-{
-  "productId": "P-1001",
-  "quantity": 1,
-  "price": 199.99
-}
-```
+Monitor:
 
-Expected flow:
+-   Grafana dashboards
+-   JVM memory usage
+-   Kafka consumer lag
+-   Circuit breaker state
+-   Database connections
 
-1. API Gateway routes request
-2. Order Service publishes `order.events`
-3. Payment Service processes payment
-4. Inventory Service reserves stock
-5. Notification Service sends update
+Key metrics:
 
----
+-   http.server.requests
+-   kafka.consumer.records.lag
+-   resilience4j_circuitbreaker_state
+-   jvm.memory.used
 
-## Observability & Metrics (Grafana)
+------------------------------------------------------------------------
 
-* Metrics exposed via **Spring Boot Actuator**
-* Collected by **Prometheus**
-* Visualized in **Grafana**
+# Industrial Standards Applied
 
-Typical dashboards include:
+-   Separation of concerns
+-   Database-per-service
+-   Centralized observability
+-   Docker-based reproducible environments
+-   Idempotent consumers
+-   Dead-letter queues
+-   Resilience patterns
+-   Clear layered deployment
 
-* JVM metrics
-* HTTP latency
-* Kafka consumer lag
-* Circuit breaker states
+------------------------------------------------------------------------
 
----
+# Future Improvements
 
-## Resilience & Safety Guarantees
+-   OAuth2 / JWT Identity service
+-   Kubernetes deployment (Helm charts)
+-   Chaos engineering tests
+-   Horizontal auto-scaling
 
-* Resilience4j (Retry, CircuitBreaker, Bulkhead)
-* Kafka consumer idempotency
-* Transactional message handling
-* Database-per-service isolation
+------------------------------------------------------------------------
 
----
+# License
 
-## Roadmap
-
-* Identity Service (JWT / OAuth2)
-* Distributed tracing (Micrometer + Tempo)
-* Chaos testing
-* Saga compensation flows
-* Production-ready Helm charts
-
----
-
+MIT License
