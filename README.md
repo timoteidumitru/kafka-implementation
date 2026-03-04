@@ -1,278 +1,321 @@
 # Distributed Event-Driven Microservices Platform
 
-A production-grade distributed microservices system built with Java 21,
-Spring Boot 3, Spring Cloud, Apache Kafka, Docker, Prometheus, and
-Grafana.
+### Enterprise-Oriented Architecture (Road to Production-Grade)
 
-This project demonstrates:
+------------------------------------------------------------------------
 
--   Event-driven architecture (EDA)
--   Saga-style distributed workflows
--   Resilience patterns (Retry, Circuit Breaker, Bulkhead)
+## 1. Executive Summary
+
+This project is a distributed, event-driven microservices platform built
+using modern cloud-native patterns.
+
+It is designed as a **production-style architecture**, implementing
+industry best practices such as:
+
+-   Event-driven communication (Apache Kafka)
+-   Saga-style workflow orchestration (choreography-based)
+-   Topic versioning & backward compatibility strategy
+-   Dead Letter Topics (DLT)
+-   Distributed tracing
 -   Observability-first design
--   Full Docker-based containerization
--   Industrial-grade layered deployment structure
+-   Layered Docker deployment
+-   External shared Docker network
+-   Logical database-per-service pattern
+
+> ⚠️ Note: While not yet fully enterprise-grade, this system is
+> intentionally structured to evolve toward production readiness.
 
 ------------------------------------------------------------------------
 
-# Architecture Overview
+## 2. Technology Stack
 
-## Architectural Style
+### Core
 
--   Microservices
--   Event-driven communication (Kafka)
--   Database-per-service
--   API Gateway pattern
--   Service discovery (Eureka)
--   Layered containerized infrastructure
+-   Java 21
+-   Spring Boot 3
+-   Spring Cloud (Gateway + Eureka)
+-   Apache Kafka (Confluent 7.4.1)
+-   MySQL 8
+-   Redis 7
 
-------------------------------------------------------------------------
+### Observability
 
-# System Layers (Industrial Deployment Model)
+-   Prometheus
+-   Alertmanager
+-   Grafana
+-   Zipkin
+-   Kafka Exporter
 
-The system is organized into 4 logical layers:
+### Infrastructure
 
-## 1️⃣ Infrastructure Layer
-
-Responsible for foundational services.
-
-Includes: - Kafka - Zookeeper - MySQL (per-service databases) - Redis -
-Prometheus - Grafana
-
-## 2️⃣ Platform Layer
-
-Core distributed system components.
-
-Includes: - Eureka Server - API Gateway
-
-## 3️⃣ Business Services Layer
-
-Domain microservices.
-
-Includes: - Order Service - Payment Service - Inventory Service -
-Notification Service
-
-## 4️⃣ Shared Contracts Layer
-
-Shared event models (Kafka contracts). - shared-events module - Not
-deployed - No Docker image
+-   Docker
+-   Docker Compose (Layered Deployment)
+-   External Docker bridge network (`kafka-network`)
 
 ------------------------------------------------------------------------
 
-# Kafka Messaging Architecture
+## 3. System Architecture
 
-## Topics
+### Business Services
+```
+Service                Port   Responsibility
+---------------------- ------ -----------------------------------
+order-service          8081   Order creation & event publishing
+payment-service        8082   Payment processing
+notification-service   8083   Event-driven notifications
+inventory-service      8084   Stock validation & deduction
+```
+Each service:
 
--   order.events
--   payment.events
--   inventory.events
+-   Registers with Eureka
+-   Connects to Kafka (`kafka:9092`)
+-   Uses its own logical MySQL database
+-   Exposes `/actuator/prometheus`
+-   Implements versioned Kafka topic contracts
 
-## Dead Letter Topics (DLT)
+------------------------------------------------------------------------
 
-Each topic automatically supports:
+## 4. Event Flow (Saga Choreography)
 
--   order.events.DLT
--   payment.events.DLT
--   inventory.events.DLT
+Order → Payment → Inventory → Notification
 
-DLTs are used when message processing fails after retries.
+1.  Order Created → `order.events.v1`
+2.  Payment Processed → `payment.events.v1`
+3.  Inventory Reserved → `inventory.events.v1`
+4.  Notification Sent → `notification.events.v1`
 
-## Consumer Groups
+Failure handling: - Dead Letter Topics (`*.DLT`) - Consumer group
+isolation - Idempotent processing pattern
+
+------------------------------------------------------------------------
+
+## 5. Kafka Design
+
+### Versioned Topics
+
+-   order.events.v1
+-   order.events.v1.DLT
+-   payment.events.v1
+-   inventory.events.v1
+-   notification.events.v1
+
+### Consumer Groups
 
 -   order-service-group
 -   payment-service-group
 -   inventory-service-group
 -   notification-service-group
 
-Each service runs in its own consumer group for isolation.
+### Best Practices Applied
+
+-   Topic versioning strategy
+-   Dead Letter Topics
+-   Explicit topic creation via `kafka-init`
+-   Auto topic creation disabled
+-   Kafka lag monitoring
 
 ------------------------------------------------------------------------
 
-# Databases (Database-per-Service)
+## 6. Docker Layered Deployment Model
 
--   orders_db
--   payments_db
--   inventory_db
+The platform is split into 4 independent layers:
+```
+setup/ 
+    ├── 1.infrastructure/ 
+    ├── 2.platform/ 
+    ├── 3.monitoring/ 
+    └── 4.services/
+```
+All layers communicate through:
 
-Each service owns its schema and data.
-
-------------------------------------------------------------------------
-
-# Observability Stack
-
-Metrics Flow:
-
-Spring Boot Actuator → Prometheus → Grafana
-
-## Exposed Endpoints
-
-Each service exposes:
-
--   /actuator/health
--   /actuator/prometheus
--   /actuator/metrics
-
-## Grafana Access
-
-Default:
-
-http://localhost:3000
-
-Default credentials:
-
-admin / admin
+External Docker Network: `kafka-network`
 
 ------------------------------------------------------------------------
 
-# Running the System (Docker -- Recommended)
+### 6.1 Infrastructure Layer
 
-## Step 1: Start Infrastructure
+Includes:
 
-cd setup/1.infrastructure docker compose up -d
+-   Zookeeper
+-   Kafka
+-   kafka-init (topic creation script)
+-   MySQL (multi-database instance)
+-   Redis
 
-Includes Kafka, MySQL, Redis, Prometheus, Grafana.
+Features:
 
-------------------------------------------------------------------------
-
-## Step 2: Start Platform Layer
-
-cd ../2.platform docker compose up -d
-
-Access:
-
--   Eureka: http://localhost:8761
--   Gateway: http://localhost:8080
+-   Persistent volumes
+-   Health checks
+-   Explicit topic provisioning
+-   Production-style separation of infrastructure
 
 ------------------------------------------------------------------------
 
-## Step 3: Build All Services
+### 6.2 Platform Layer
 
-From project root:
+Includes:
+
+-   Eureka Server → http://localhost:8761
+-   API Gateway → http://localhost:8080
+-   Zipkin → http://localhost:9411
+-   Kafka Exporter → http://localhost:9308/metrics
+
+Responsibilities:
+
+-   Service discovery
+-   Centralized routing
+-   Distributed tracing
+-   Kafka metrics exposure
+
+------------------------------------------------------------------------
+
+### 6.3 Monitoring Layer
+
+Includes:
+
+-   Prometheus → http://localhost:9090
+-   Alertmanager → http://localhost:9093
+-   Grafana → http://localhost:3000 (admin/admin)
+
+Monitored Metrics:
+
+-   http.server.requests
+-   kafka_consumer_lag
+-   jvm.memory.used
+-   resilience4j_circuitbreaker_state
+
+------------------------------------------------------------------------
+
+### 6.4 Business Services Layer
+
+Built via:
 
 mvn clean install
 
-------------------------------------------------------------------------
+Deployed via:
 
-## Step 4: Start Business Services
-
-cd setup/3.services docker compose up -d
+docker compose -f services-compose.yml up -d
 
 ------------------------------------------------------------------------
 
-# Local Development Setup (Without Docker)
+## 7. Startup Order (Critical)
 
-## Requirements
+1️⃣ Infrastructure\
+2️⃣ Platform\
+3️⃣ Monitoring\
+4️⃣ Services
 
--   Java 21
--   Maven 3.9+
--   Docker (only for Kafka/MySQL if not installed locally)
-
-## Option A (Recommended Hybrid Mode)
-
-Run infrastructure with Docker only:
-
-docker compose -f setup/1.infrastructure/docker-compose.yml up -d
-
-Then run services locally via IDE.
-
-Each service must use:
-
-SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-
-or for local Kafka:
-
-SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+This order ensures Kafka and databases are ready before services
+register and consume.
 
 ------------------------------------------------------------------------
 
-# Testing the System
+## 8. Observability Strategy
 
-## Create Order
+This system follows an **Observability-First Approach**:
 
-POST http://localhost:8080/api/orders
+### Metrics
 
-Body:
+-   JVM metrics
+-   HTTP request metrics
+-   Kafka consumer lag
+-   Resilience4j state transitions
 
-{ "productId": "P-1001", "quantity": 1, "price": 199.99 }
+### Tracing
 
-Flow:
+-   Zipkin distributed tracing
+-   Propagated trace IDs across services
 
-1.  Order Service publishes order.events
-2.  Payment Service processes payment
-3.  Inventory Service reserves stock
-4.  Notification Service reacts
+### Monitoring Patterns
+
+-   Latency tracking
+-   Throughput monitoring
+-   Error rate visualization
+-   Kafka lag detection
 
 ------------------------------------------------------------------------
 
-# Stress Testing (Load Testing)
+## 9. Load & Stress Testing
 
-To observe behavior under load:
-
-## Option 1 -- Apache JMeter
-
-Create thread group: - 100--1000 users - Ramp-up 30 seconds - Loop 10
-times
-
-Target: POST /api/orders
-
-## Option 2 -- k6 (Recommended Modern Tool)
-
-Example:
+k6 script supported:
 
 k6 run load-test.js
 
-Example script:
+Expected Behavior Under Load:
 
-import http from 'k6/http'; import { sleep } from 'k6';
-
-export default function () {
-http.post('http://localhost:8080/api/orders', JSON.stringify({
-productId: "P-1001", quantity: 1, price: 199.99 }), { headers: {
-'Content-Type': 'application/json' }, }); sleep(1); }
+-   Increased latency
+-   Kafka lag growth
+-   Higher DB connection usage
+-   Circuit breaker state transitions
 
 ------------------------------------------------------------------------
 
-# Observing System Under Stress
+## 10. Local Development Strategy
 
-Monitor:
+Recommended Hybrid Mode:
 
--   Grafana dashboards
--   JVM memory usage
--   Kafka consumer lag
--   Circuit breaker state
--   Database connections
+-   Infrastructure + Monitoring in Docker
+-   Services running in IDE
 
-Key metrics:
+Environment variable override:
 
--   http.server.requests
--   kafka.consumer.records.lag
--   resilience4j_circuitbreaker_state
--   jvm.memory.used
+SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+
+This allows debugging with real infrastructure dependencies.
 
 ------------------------------------------------------------------------
 
-# Industrial Standards Applied
+## 11. Production Readiness Roadmap
 
--   Separation of concerns
--   Database-per-service
--   Centralized observability
--   Docker-based reproducible environments
--   Idempotent consumers
--   Dead-letter queues
--   Resilience patterns
--   Clear layered deployment
+Planned improvements toward enterprise-grade:
 
-------------------------------------------------------------------------
-
-# Future Improvements
-
--   OAuth2 / JWT Identity service
--   Kubernetes deployment (Helm charts)
--   Chaos engineering tests
--   Horizontal auto-scaling
+-   Schema Registry integration
+-   Avro or Protobuf event contracts
+-   CI/CD pipeline (GitHub Actions)
+-   Blue/Green or Canary deployments
+-   Centralized configuration server
+-   Kubernetes migration
+-   Proper secret management (Vault)
+-   Multi-node Kafka cluster
+-   Horizontal scaling of services
+-   Database per container (true isolation)
 
 ------------------------------------------------------------------------
 
-# License
+## 12. Architecture Principles Applied
 
-MIT License
+-   Loose coupling via events
+-   Independent deployability
+-   Failure isolation
+-   Observability-first design
+-   Explicit infrastructure provisioning
+-   Backward-compatible messaging contracts
+
+------------------------------------------------------------------------
+
+## 13. Contribution Guidelines
+
+1.  Maintain topic versioning compatibility
+2.  Avoid breaking event contracts
+3.  Ensure Docker builds succeed
+4.  Run `mvn clean verify`
+5.  Validate Prometheus metrics exposure
+6.  Maintain health checks
+
+------------------------------------------------------------------------
+
+## 14. License
+
+MIT
+
+------------------------------------------------------------------------
+
+## Final Note
+
+This platform is intentionally structured as a **learning-to-enterprise
+progression project**.
+
+It reflects real-world architectural patterns used in production systems
+while remaining practical for local development and experimentation.
+
+The goal is continuous evolution toward full production-grade maturity.
