@@ -10,6 +10,7 @@ spring:
     properties:
       spring.kafka.observation.enabled: true
     consumer:
+      observation-enabled: true
       group-id: notification-service
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
