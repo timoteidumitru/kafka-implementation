@@ -70,7 +70,7 @@ public class InventoryEventListener {
 
             publisher.publishReserved(
                     new InventoryReservedEvent(
-                            next(event.metadata(), "inventory-service"),
+                            next(event.metadata(), "inventory-service", 1),
                             event.orderId(),
                             event.productId(),
                             event.quantity()
@@ -99,7 +99,7 @@ public class InventoryEventListener {
 
             publisher.publishFailed(
                     new InventoryReservationFailedEvent(
-                            next(event.metadata(), "inventory-service"),
+                            next(event.metadata(), "inventory-service", 1),
                             event.orderId(),
                             "Inventory service unavailable"
                     )

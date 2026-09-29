@@ -75,7 +75,7 @@ public class PaymentEventListener {
 
             publisher.publishPaymentCompleted(
                     new PaymentCompletedEvent(
-                            next(event.metadata(), "payment-service"),
+                            next(event.metadata(), "payment-service", 1),
                             event.orderId(),
                             event.productId(),
                             event.quantity(),
@@ -106,7 +106,7 @@ public class PaymentEventListener {
 
             publisher.publishPaymentFailed(
                     new PaymentFailedEvent(
-                            next(event.metadata(), "payment-service"),
+                            next(event.metadata(), "payment-service", 1),
                             event.orderId(),
                             ex.getMessage()
                     )

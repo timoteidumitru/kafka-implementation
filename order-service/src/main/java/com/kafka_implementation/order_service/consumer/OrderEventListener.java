@@ -54,7 +54,7 @@ public class OrderEventListener {
 
             publisher.publishOrderFailed(
                     new OrderFailedEvent(
-                            next(event.metadata(), "order-service"),
+                            next(event.metadata(), "order-service", 1),
                             event.orderId(),
                             event.reason()
                     )
@@ -79,7 +79,7 @@ public class OrderEventListener {
 
             publisher.publishOrderFailed(
                     new OrderFailedEvent(
-                            next(event.metadata(), "order-service"),
+                            next(event.metadata(), "order-service", 1),
                             event.orderId(),
                             event.reason()
                     )
@@ -104,7 +104,7 @@ public class OrderEventListener {
 
             publisher.publishOrderCompleted(
                     new OrderCompletedEvent(
-                            next(event.metadata(), "order-service"),
+                            next(event.metadata(), "order-service", 1),
                             event.orderId()
                     )
             );
