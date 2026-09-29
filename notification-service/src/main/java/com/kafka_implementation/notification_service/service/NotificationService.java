@@ -1,4 +1,4 @@
-package com.kafka_integration.notification_service.service;
+package com.kafka_implementation.notification_service.service;
 
 import com.kafka_implementation.shared_events.base.DomainEvent;
 import org.springframework.stereotype.Service;

@@ -1,4 +1,4 @@
-package com.kafka_integration.notification_service.config;
+package com.kafka_implementation.notification_service.config;
 
 import org.springframework.context.annotation.Configuration;
 

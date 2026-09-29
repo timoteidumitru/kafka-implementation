@@ -1,4 +1,4 @@
-package com.kafka_integration.notification_service;
+package com.kafka_implementation.notification_service;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

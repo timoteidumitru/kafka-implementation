@@ -1,4 +1,4 @@
-package com.kafka_integration.notification_service.config;
+package com.kafka_implementation.notification_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka_implementation.shared_events.serialization.EventObjectMapperFactory;

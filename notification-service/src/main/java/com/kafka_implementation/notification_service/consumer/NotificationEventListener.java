@@ -1,8 +1,8 @@
-package com.kafka_integration.notification_service.consumer;
+package com.kafka_implementation.notification_service.consumer;
 
 import com.kafka_implementation.shared_events.base.DomainEvent;
-import com.kafka_integration.notification_service.config.KafkaTopicsConfig;
-import com.kafka_integration.notification_service.service.NotificationService;
+import com.kafka_implementation.notification_service.config.KafkaTopicsConfig;
+import com.kafka_implementation.notification_service.service.NotificationService;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
