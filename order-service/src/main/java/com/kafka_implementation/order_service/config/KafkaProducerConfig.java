@@ -25,7 +25,7 @@ public class KafkaProducerConfig {
     }
 
     @Bean
-    public ProducerFactory<String, DomainEvent> inventoryProducerFactory() {
+    public ProducerFactory<String, DomainEvent> orderProducerFactory() {
         Map<String, Object> props = new HashMap<>();
         // Docker-safe fallback
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
@@ -43,7 +43,7 @@ public class KafkaProducerConfig {
     }
 
     @Bean
-    public KafkaTemplate<String, DomainEvent> inventoryKafkaTemplate() {
-        return new KafkaTemplate<>(inventoryProducerFactory());
+    public KafkaTemplate<String, DomainEvent> orderKafkaTemplate() {
+        return new KafkaTemplate<>(orderProducerFactory());
     }
 }
