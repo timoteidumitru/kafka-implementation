@@ -1,34 +1,45 @@
 PHASE 0 — REPOSITORY & BUILD AUDIT
 ================================
 
-KEEP
-✓ Clear multi-module Maven structure
+### KEEP
+✓ Clear multi-module Maven structure 
+
 ✓ Business services separated
+
 ✓ Platform services separated
+
 ✓ shared-events is a dedicated module
+
 ✓ Four-layer local deployment structure
+
 ✓ Spring Boot parent
+
 ✓ Spring Cloud BOM
+
 ✓ Boot/Cloud versions are mutually compatible
+
 ✓ Java version centrally defined
+
 ✓ Event contracts organised by domain
 
-IMPROVE / INVESTIGATE
+### IMPROVE / INVESTIGATE
 △ notification-service package naming differs
+
 △ Multiple module-level Maven wrappers
+
 △ No root Maven wrapper visible
+
 △ Boot/Cloud baseline is now EOL
+
 △ Need to verify whether serialization belongs in shared-events
+
 △ Need to inspect child POM consistency
 
-FIX
+### FIX
 None confirmed yet.
 
-LATER
+### LATER
 → Dependency/platform upgrade decision
 
-DON'T ADD
+### DON'T ADD
 Nothing identified yet.
-
-STATUS
-[ ] Phase 0.1 incomplete

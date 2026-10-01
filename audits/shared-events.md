@@ -1,43 +1,62 @@
 PHASE 0 — SHARED EVENTS AUDIT
 ========================================
 
-KEEP
+### KEEP
 ✓ Small dedicated contract module
+
 ✓ Events grouped by domain
+
 ✓ Immutable records
+
 ✓ eventId
+
 ✓ correlationId
+
 ✓ occurredAt
+
 ✓ sourceService
+
 ✓ Consistent orderId aggregate identity
+
 ✓ DomainEvent common abstraction
+
 ✓ Event version carried with event metadata
 
-FIXED DURING AUDIT
+### FIXED DURING AUDIT
 ✓ EventMetadataFactory no longer inherits
   upstream event version automatically
+
 ✓ Project recompiles successfully
 
-IMPROVE
+### IMPROVE
 △ Schema-version ownership inconsistent
   (only OrderCreatedEvent has VERSION constant)
+
 △ Magic version literals temporarily exist
   in listeners
 
-INVESTIGATE
+### INVESTIGATE
 △ Is EventType providing real value?
+
 △ EventObjectMapperFactory vs service ObjectMapperConfig
+
 △ PaymentRequestedEvent has no apparent usages
+
 △ InventoryReserveRequestedEvent has no apparent usages
+
 △ DLT constants have no direct Java usages
+
 △ Exact event topology still needs verification
 
-LATER
+### LATER
 △ Standardize schema-version declaration after
   complete event topology is understood
 
-DO NOT CHANGE YET
+### DO NOT CHANGE YET
 → EventType
+
 → Requested events
+
 → DLT constants
+
 → ObjectMapper factory
