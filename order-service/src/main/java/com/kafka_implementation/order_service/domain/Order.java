@@ -33,10 +33,22 @@ public class Order {
     }
 
     public void markCompleted() {
+        if (this.status != OrderStatus.CREATED) {
+            throw new IllegalStateException(
+                    "Cannot complete order from status: " + this.status
+            );
+        }
+
         this.status = OrderStatus.COMPLETED;
     }
 
     public void markCancelled() {
+        if (this.status != OrderStatus.CREATED) {
+            throw new IllegalStateException(
+                    "Cannot cancel order from status: " + this.status
+            );
+        }
+
         this.status = OrderStatus.CANCELLED;
     }
 }

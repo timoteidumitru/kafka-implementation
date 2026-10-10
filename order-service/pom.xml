@@ -23,6 +23,13 @@
 	<!-- ====================================================== -->
 	<dependencies>
 
+		<!-- Testing: JUnit 5, AssertJ, Mockito, Spring Boot Test -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
 		<!-- Brave Micrometer -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
