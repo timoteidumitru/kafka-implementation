@@ -65,7 +65,7 @@ class OrderServiceTest {
     void shouldCancelExistingOrder() {
 
         // Arrange
-        UUID orderId = UUID.randomUUID();
+        UUID orderId = order.getId();
 
         when(repository.findById(orderId))
                 .thenReturn(Optional.of(order));
@@ -84,7 +84,7 @@ class OrderServiceTest {
     void shouldThrowWhenCancellingNonExistingOrder() {
 
         // Arrange
-        UUID orderId = UUID.randomUUID();
+        UUID orderId = order.getId();
 
         when(repository.findById(orderId))
                 .thenReturn(Optional.empty());
@@ -100,7 +100,7 @@ class OrderServiceTest {
     void shouldNotSaveWhenCompletingCancelledOrder() {
 
         // Arrange
-        UUID orderId = UUID.randomUUID();
+        UUID orderId = order.getId();
 
         order.markCancelled();
 
@@ -121,7 +121,7 @@ class OrderServiceTest {
     void shouldCompleteExistingOrder() {
 
         // Arrange
-        UUID orderId = UUID.randomUUID();
+        UUID orderId = order.getId();
 
         when(repository.findById(orderId))
                 .thenReturn(Optional.of(order));

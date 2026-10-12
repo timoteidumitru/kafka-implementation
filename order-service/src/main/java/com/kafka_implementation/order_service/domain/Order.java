@@ -1,12 +1,13 @@
 package com.kafka_implementation.order_service.domain;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Data
+@Getter
 @Table(name = "orders")
 public class Order {
 

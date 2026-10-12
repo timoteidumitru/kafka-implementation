@@ -96,12 +96,6 @@
 			<artifactId>spring-boot-starter-data-redis-reactive</artifactId>
 		</dependency>
 
-		<!-- Actuator (health, metrics, tracing later) -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-actuator</artifactId>
-		</dependency>
-
 		<!-- Logging API (explicit, for consistency) -->
 		<dependency>
 			<groupId>org.slf4j</groupId>
