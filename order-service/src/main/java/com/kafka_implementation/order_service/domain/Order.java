@@ -14,6 +14,10 @@ public class Order {
     @Id
     private UUID id;
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     private UUID userId;
     private UUID productId;
     private int quantity;
@@ -34,6 +38,10 @@ public class Order {
     }
 
     public void markCompleted() {
+        if (this.status == OrderStatus.COMPLETED) {
+            return;
+        }
+
         if (this.status != OrderStatus.CREATED) {
             throw new IllegalStateException(
                     "Cannot complete order from status: " + this.status
@@ -44,6 +52,10 @@ public class Order {
     }
 
     public void markCancelled() {
+        if (this.status == OrderStatus.CANCELLED) {
+            return;
+        }
+
         if (this.status != OrderStatus.CREATED) {
             throw new IllegalStateException(
                     "Cannot cancel order from status: " + this.status
@@ -52,5 +64,6 @@ public class Order {
 
         this.status = OrderStatus.CANCELLED;
     }
+
 }
 

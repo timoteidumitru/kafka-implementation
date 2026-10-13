@@ -75,4 +75,31 @@ class OrderTest {
         assertThat(order.getStatus())
                 .isEqualTo(OrderStatus.CANCELLED);
     }
+
+    @Test
+    void shouldAllowCompletingAnAlreadyCompletedOrder() {
+        // Arrange
+        order.markCompleted();
+
+        // Act
+        order.markCompleted();
+
+        // Assert
+        assertThat(order.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
+    void shouldAllowCancellingAnAlreadyCancelledOrder() {
+        // Arrange
+        order.markCancelled();
+
+        // Act
+        order.markCancelled();
+
+        // Assert
+        assertThat(order.getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+    }
+
 }

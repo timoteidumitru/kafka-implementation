@@ -13,6 +13,10 @@ import com.kafka_implementation.order_service.config.MySQLTestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.test.context.transaction.TestTransaction;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.OptimisticLockException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import jakarta.persistence.RollbackException;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -36,6 +40,9 @@ class OrderRepositoryIT {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Order order;
 
@@ -104,6 +111,75 @@ class OrderRepositoryIT {
 
         // Query after the transaction has ended
         assertThat(repository.findById(orderId)).isEmpty();
+    }
+
+    @Test
+    void shouldRejectStaleOrderUpdate() {
+        UUID orderId = order.getId();
+
+        // Persist the initial order in the test transaction.
+        repository.saveAndFlush(order);
+
+        // Commit it so both independent EntityManagers can read it.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        EntityManager managerA =
+                entityManagerFactory.createEntityManager();
+
+        EntityManager managerB =
+                entityManagerFactory.createEntityManager();
+
+        try {
+            // Both managers load the same CREATED order.
+            Order orderA = managerA.find(Order.class, orderId);
+            Order orderB = managerB.find(Order.class, orderId);
+
+            assertThat(orderA.getStatus())
+                    .isEqualTo(OrderStatus.CREATED);
+            assertThat(orderB.getStatus())
+                    .isEqualTo(OrderStatus.CREATED);
+
+            // Transaction A completes the order.
+            var transactionA = managerA.getTransaction();
+            transactionA.begin();
+
+            orderA.markCompleted();
+
+            transactionA.commit();
+
+            // Transaction B still holds its stale copy.
+            var transactionB = managerB.getTransaction();
+            transactionB.begin();
+
+            orderB.markCancelled();
+
+            // With optimistic locking, this must fail.
+            assertThatThrownBy(transactionB::commit)
+                    .isInstanceOf(RollbackException.class)
+                    .hasCauseInstanceOf(OptimisticLockException.class);
+
+            // Verify that A's result remains persisted.
+            entityManager.clear();
+
+            Order persisted = repository.findById(orderId)
+                    .orElseThrow();
+
+            assertThat(persisted.getStatus())
+                    .isEqualTo(OrderStatus.COMPLETED);
+
+        } finally {
+            if (managerA.getTransaction().isActive()) {
+                managerA.getTransaction().rollback();
+            }
+
+            if (managerB.getTransaction().isActive()) {
+                managerB.getTransaction().rollback();
+            }
+
+            managerA.close();
+            managerB.close();
+        }
     }
 
 }
