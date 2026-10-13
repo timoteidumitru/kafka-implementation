@@ -63,7 +63,6 @@ class OrderServiceTest {
 
     @Test
     void shouldCancelExistingOrder() {
-
         // Arrange
         UUID orderId = order.getId();
 
@@ -77,7 +76,8 @@ class OrderServiceTest {
         assertThat(order.getStatus())
                 .isEqualTo(OrderStatus.CANCELLED);
 
-        verify(repository).save(order);
+        verify(repository).findById(orderId);
+        verify(repository, never()).save(any(Order.class));
     }
 
     @Test
@@ -97,7 +97,7 @@ class OrderServiceTest {
     }
 
     @Test
-    void shouldNotSaveWhenCompletingCancelledOrder() {
+    void shouldRejectCompletingCancelledOrder() {
 
         // Arrange
         UUID orderId = order.getId();
@@ -117,9 +117,9 @@ class OrderServiceTest {
         verify(repository, never()).save(any(Order.class));
     }
 
+
     @Test
     void shouldCompleteExistingOrder() {
-
         // Arrange
         UUID orderId = order.getId();
 
@@ -129,12 +129,15 @@ class OrderServiceTest {
         // Act
         orderService.complete(orderId);
 
-        // Assert
+        // Assert: verify the business state changed
         assertThat(order.getStatus())
                 .isEqualTo(OrderStatus.COMPLETED);
 
+        // Verify the repository was used to retrieve the Order
         verify(repository).findById(orderId);
-        verify(repository).save(order);
+
+        // Dirty checking means no explicit save is required
+        verify(repository, never()).save(any(Order.class));
     }
 
 }

@@ -2,20 +2,15 @@ package com.kafka_implementation.order_service.repository;
 
 import com.kafka_implementation.order_service.domain.Order;
 import com.kafka_implementation.order_service.domain.OrderStatus;
-
 import jakarta.persistence.EntityManager;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.test.annotation.DirtiesContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.TestPropertySource;
-
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.containers.MySQLContainer;
+import com.kafka_implementation.order_service.config.MySQLTestConfiguration;
+import org.springframework.context.annotation.Import;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.test.context.transaction.TestTransaction;
 
@@ -25,8 +20,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers
 @DataJpaTest
+@Import(MySQLTestConfiguration.class)
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
@@ -35,11 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OrderRepositoryIT {
-
-    @Container
-    @ServiceConnection
-    static MySQLContainer<?> mysql =
-            new MySQLContainer<>("mysql:8.0");
 
     @Autowired
     private OrderRepository repository;
