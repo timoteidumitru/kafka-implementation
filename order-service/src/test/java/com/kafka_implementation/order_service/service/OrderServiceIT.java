@@ -3,6 +3,7 @@ package com.kafka_implementation.order_service.service;
 import com.kafka_implementation.order_service.domain.Order;
 import com.kafka_implementation.order_service.domain.OrderStatus;
 import com.kafka_implementation.order_service.repository.OrderRepository;
+import com.kafka_implementation.order_service.repository.ProcessedEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @Import({
         OrderService.class,
+        IdempotencyGuard.class,
+        OrderEventProcessor.class,
         MySQLTestConfiguration.class
 })
 @AutoConfigureTestDatabase(
@@ -47,6 +50,12 @@ class OrderServiceIT {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private ProcessedEventRepository processedEventRepository;
+
+    @Autowired
+    private OrderEventProcessor orderEventProcessor;
+
     private Order order;
 
     @BeforeEach
@@ -58,6 +67,54 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldProcessEventOnlyOnce() {
+        Order created = orderService.create(order);
+        UUID eventId = UUID.randomUUID();
+
+        boolean firstProcessing = orderEventProcessor.processCompletion(
+                eventId,
+                created.getId()
+        );
+
+        boolean secondProcessing = orderEventProcessor.processCompletion(
+                eventId,
+                created.getId()
+        );
+
+        assertThat(firstProcessing).isTrue();
+        assertThat(secondProcessing).isFalse();
+
+        assertThat(processedEventRepository.existsById(eventId))
+                .isTrue();
+
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+
+        assertThat(persisted.getVersion())
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void shouldNotMarkEventProcessedWhenBusinessProcessingFails() {
+        UUID eventId = UUID.randomUUID();
+        UUID nonExistentOrderId = UUID.randomUUID();
+
+        assertThatThrownBy(() ->
+                orderEventProcessor.processCancellation(
+                        eventId,
+                        nonExistentOrderId
+                )
+        ).isInstanceOf(java.util.NoSuchElementException.class);
+
+        assertThat(processedEventRepository.existsById(eventId))
+                .as("Failed order processing must roll back the event claim")
+                .isFalse();
     }
 
     @Test

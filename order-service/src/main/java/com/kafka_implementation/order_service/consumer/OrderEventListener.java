@@ -2,6 +2,7 @@ package com.kafka_implementation.order_service.consumer;
 
 import com.kafka_implementation.order_service.producer.OrderEventPublisher;
 import com.kafka_implementation.order_service.service.IdempotencyGuard;
+import com.kafka_implementation.order_service.service.OrderEventProcessor;
 import com.kafka_implementation.order_service.service.OrderService;
 import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
@@ -25,19 +26,17 @@ public class OrderEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(OrderEventListener.class);
 
-    private final OrderService orderService;
+    private final OrderEventProcessor orderEventProcessor;
     private final OrderEventPublisher publisher;
-    private final IdempotencyGuard idempotencyGuard;
 
     public OrderEventListener(
-            OrderService orderService,
-            OrderEventPublisher publisher,
-            IdempotencyGuard idempotencyGuard
+            OrderEventProcessor orderEventProcessor,
+            OrderEventPublisher publisher
     ) {
-        this.orderService = orderService;
+        this.orderEventProcessor = orderEventProcessor;
         this.publisher = publisher;
-        this.idempotencyGuard = idempotencyGuard;
     }
+
 
     @Retry(name = "order-kafka")
     @CircuitBreaker(name = "order-kafka", fallbackMethod = "fallback")
@@ -48,9 +47,12 @@ public class OrderEventListener {
         MDC.put("orderId", event.orderId().toString());
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
+            boolean processed = orderEventProcessor.processCancellation(
+                    event.metadata().eventId(),
+                    event.orderId()
+            );
 
-            orderService.cancel(event.orderId());
+            if (!processed) return;
 
             publisher.publishOrderFailed(
                     new OrderFailedEvent(
@@ -73,9 +75,12 @@ public class OrderEventListener {
         MDC.put("eventId", event.metadata().eventId().toString());
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
+            boolean processed = orderEventProcessor.processCancellation(
+                    event.metadata().eventId(),
+                    event.orderId()
+            );
 
-            orderService.cancel(event.orderId());
+            if (!processed) return;
 
             publisher.publishOrderFailed(
                     new OrderFailedEvent(
@@ -98,9 +103,12 @@ public class OrderEventListener {
         MDC.put("eventId", event.metadata().eventId().toString());
 
         try {
-            if (idempotencyGuard.alreadyProcessed(event.metadata().eventId())) return;
+            boolean processed = orderEventProcessor.processCompletion(
+                    event.metadata().eventId(),
+                    event.orderId()
+            );
 
-            orderService.complete(event.orderId());
+            if (!processed) return;
 
             publisher.publishOrderCompleted(
                     new OrderCompletedEvent(
