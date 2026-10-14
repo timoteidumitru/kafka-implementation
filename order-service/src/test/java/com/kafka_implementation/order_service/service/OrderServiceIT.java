@@ -17,7 +17,19 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import com.kafka_implementation.order_service.config.MySQLTestConfiguration;
 import org.springframework.test.annotation.DirtiesContext;
+import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import com.kafka_implementation.order_service.outbox.domain.OutboxEvent;
+import com.kafka_implementation.order_service.outbox.domain.OutboxStatus;
+import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepository;
+import com.kafka_implementation.order_service.outbox.service.OutboxWriter;
+import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 
+import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
+import static org.mockito.Mockito.*;
+
+import java.util.List;
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -29,6 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         OrderService.class,
         IdempotencyGuard.class,
         OrderEventProcessor.class,
+        OutboxWriter.class,
+        JacksonAutoConfiguration.class,
         MySQLTestConfiguration.class
 })
 @AutoConfigureTestDatabase(
@@ -56,6 +70,12 @@ class OrderServiceIT {
     @Autowired
     private OrderEventProcessor orderEventProcessor;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
+    @SpyBean
+    private OutboxWriter outboxWriter;
+
     private Order order;
 
     @BeforeEach
@@ -67,6 +87,182 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+//    @BeforeEach
+//    void cleanTestData() {
+//        outboxEventRepository.deleteAll();
+//        processedEventRepository.deleteAll();
+//        orderRepository.deleteAll();
+//    }
+
+    @Test
+    void shouldNotCreateDuplicateOutboxEventForSameIncomingEvent() {
+
+        // Arrange
+        Order created = orderService.create(order);
+
+        PaymentFailedEvent incomingEvent = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                created.getId(),
+                "Payment declined"
+        );
+
+        // Act: simulate Kafka delivering the same event twice.
+        boolean first = orderEventProcessor.processPaymentFailure(
+                incomingEvent
+        );
+
+        boolean second = orderEventProcessor.processPaymentFailure(
+                incomingEvent
+        );
+
+        // Assert: only the first processing should succeed.
+        assertThat(first).isTrue();
+        assertThat(second).isFalse();
+
+        // The Order transition happened.
+        assertThat(orderRepository.findById(created.getId())
+                .orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        // Incoming event was claimed exactly once.
+        assertThat(processedEventRepository.existsById(
+                incomingEvent.metadata().eventId()
+        )).isTrue();
+
+        // Exactly one outgoing event exists.
+        List<OutboxEvent> outboxEvents =
+                outboxEventRepository.findByAggregateId(created.getId());
+
+        assertThat(outboxEvents).hasSize(1);
+
+        OutboxEvent outgoing = outboxEvents.get(0);
+
+        assertThat(outgoing.getAggregateId())
+                .isEqualTo(created.getId());
+
+        assertThat(outgoing.getEventType())
+                .isEqualTo("ORDER_FAILED");
+
+        assertThat(outgoing.getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+    }
+
+    @Test
+    void shouldRollbackOrderAndOutboxWhenOutboxWritingFails() {
+
+        // Arrange: create an Order with its own committed transaction.
+        Order created = orderService.create(order);
+
+        UUID orderId = created.getId();
+
+        PaymentFailedEvent incomingEvent = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                orderId,
+                "Payment declined"
+        );
+
+        // Run the real outbox writer, then simulate a failure
+        // before the surrounding transaction commits.
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+
+            throw new IllegalStateException(
+                    "Simulated failure after outbox save"
+            );
+        }).when(outboxWriter).store(
+                any(UUID.class),
+                anyString(),
+                any()
+        );
+
+        // Act: the transactional processing must fail.
+        assertThatThrownBy(() ->
+                orderEventProcessor.processPaymentFailure(incomingEvent)
+        )
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Simulated failure after outbox save");
+
+        // Assert 1: the Order state change rolled back.
+        Order persistedOrder = orderRepository
+                .findById(orderId)
+                .orElseThrow();
+
+        assertThat(persistedOrder.getStatus())
+                .isEqualTo(OrderStatus.CREATED);
+
+        // Assert 2: the incoming event claim rolled back.
+        assertThat(processedEventRepository.existsById(
+                incomingEvent.metadata().eventId()
+        )).isFalse();
+
+        // Assert 3: the outgoing event also rolled back.
+        assertThat(outboxEventRepository.findByAggregateId(orderId))
+                .as("A failed transaction must not leave an outbox event for this Order")
+                .isEmpty();
+    }
+
+    @Test
+    void shouldPersistOutgoingEventWhenOrderIsCancelled() {
+
+        // Arrange
+        Order created = orderService.create(order);
+
+        PaymentFailedEvent incomingEvent = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                created.getId(),
+                "Payment declined"
+        );
+
+        // Act
+        boolean processed = orderEventProcessor.processPaymentFailure(
+                incomingEvent
+        );
+
+        // Assert: all three database changes have committed.
+        assertThat(processed).isTrue();
+
+        Order persistedOrder = orderRepository
+                .findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persistedOrder.getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        assertThat(processedEventRepository.existsById(
+                incomingEvent.metadata().eventId()
+        )).isTrue();
+
+        List<OutboxEvent> events =
+                outboxEventRepository.findByAggregateId(created.getId());
+
+        assertThat(events)
+                .as("Cancellation must persist one outgoing event")
+                .hasSize(1);
+
+        OutboxEvent outgoing = events.get(0);
+
+        assertThat(outgoing.getAggregateId())
+                .isEqualTo(created.getId());
+
+        assertThat(outgoing.getTopic())
+                .isEqualTo(ORDER_EVENTS_V1);
+
+        assertThat(outgoing.getEventType())
+                .isEqualTo("ORDER_FAILED");
+
+        assertThat(outgoing.getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+
+        assertThat(outgoing.getAttemptCount()).isZero();
+        assertThat(outgoing.getPublishedAt()).isNull();
+
+        // Check the outgoing event preserves essential information.
+        assertThat(outgoing.getPayload())
+                .contains("Payment declined")
+                .contains(created.getId().toString())
+                .contains(outgoing.getEventId().toString());
     }
 
     @Test

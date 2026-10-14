@@ -57,12 +57,8 @@ class OrderEventListenerTest {
                 "Payment declined"
         );
 
-        when(processor.processCancellation(
-                event.metadata().eventId(),
-                orderId
-        )).thenThrow(
-                new IllegalStateException("Simulated database failure")
-        );
+        when(processor.processPaymentFailure(any(PaymentFailedEvent.class)))
+                .thenThrow(new IllegalStateException("Simulated database failure"));
 
         assertThatThrownBy(() -> listener.onPaymentFailed(event))
                 .as("Processing failure must escape the listener")

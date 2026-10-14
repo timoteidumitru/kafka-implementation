@@ -28,31 +28,22 @@ public class OrderEventListener {
         this.publisher = publisher;
     }
 
-    @KafkaListener(topics = PAYMENT_EVENTS_V1, groupId = "order-service")
+    @KafkaListener(
+            topics = PAYMENT_EVENTS_V1,
+            groupId = "order-service"
+    )
     public void onPaymentFailed(PaymentFailedEvent event) {
+
         MDC.put("eventId", event.metadata().eventId().toString());
         MDC.put("orderId", event.orderId().toString());
 
         try {
-            boolean processed = orderEventProcessor.processCancellation(
-                    event.metadata().eventId(),
-                    event.orderId()
-            );
-
-            if (!processed) return;
-
-            publisher.publishOrderFailed(
-                    new OrderFailedEvent(
-                            next(event.metadata(), "order-service", 1),
-                            event.orderId(),
-                            event.reason()
-                    )
-            );
-
+            orderEventProcessor.processPaymentFailure(event);
         } finally {
             MDC.clear();
         }
     }
+
 
     @KafkaListener(topics = INVENTORY_EVENTS_V1, groupId = "order-service")
     public void onInventoryFailed(InventoryReservationFailedEvent event) {
