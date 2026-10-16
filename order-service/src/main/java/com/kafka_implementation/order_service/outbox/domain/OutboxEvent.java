@@ -59,6 +59,12 @@ public class OutboxEvent {
     @Column(name = "attempt_count", nullable = false)
     private int attemptCount;
 
+    @Column(name = "claimed_by")
+    private UUID claimedBy;
+
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
     protected OutboxEvent() {
         // Required by JPA
     }
@@ -87,6 +93,39 @@ public class OutboxEvent {
     public void markPublished() {
         this.status = OutboxStatus.PUBLISHED;
         this.publishedAt = Instant.now();
+    }
+
+    public UUID getClaimedBy() {
+        return claimedBy;
+    }
+
+    public Instant getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public void claim(UUID workerId, Instant leaseExpiresAt) {
+
+        if (workerId == null) {
+            throw new IllegalArgumentException(
+                    "Worker ID must not be null"
+            );
+        }
+
+        if (leaseExpiresAt == null) {
+            throw new IllegalArgumentException(
+                    "Lease expiration must not be null"
+            );
+        }
+
+        if (this.status != OutboxStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Only PENDING outbox events can be claimed"
+            );
+        }
+
+        this.claimedBy = workerId;
+        this.leaseExpiresAt = leaseExpiresAt;
+        this.status = OutboxStatus.IN_PROGRESS;
     }
 
     public UUID getId() {

@@ -1,9 +1,9 @@
 package com.kafka_implementation.order_service.consumer;
 
-import com.kafka_implementation.order_service.producer.OrderEventPublisher;
 import com.kafka_implementation.order_service.service.OrderEventProcessor;
 import com.kafka_implementation.shared_events.base.EventMetadata;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -13,7 +13,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 
 import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -44,11 +43,9 @@ class OrderEventListenerTest {
     @MockBean
     private OrderEventProcessor processor;
 
-    @MockBean
-    private OrderEventPublisher publisher;
-
     @Test
     void shouldPropagateProcessingFailureToKafka() {
+
         UUID orderId = UUID.randomUUID();
 
         PaymentFailedEvent event = new PaymentFailedEvent(
@@ -57,14 +54,19 @@ class OrderEventListenerTest {
                 "Payment declined"
         );
 
-        when(processor.processPaymentFailure(any(PaymentFailedEvent.class)))
-                .thenThrow(new IllegalStateException("Simulated database failure"));
+        when(processor.processPaymentFailure(event))
+                .thenThrow(new IllegalStateException(
+                        "Simulated database failure"
+                ));
 
         assertThatThrownBy(() -> listener.onPaymentFailed(event))
                 .as("Processing failure must escape the listener")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Simulated database failure");
 
-        verifyNoInteractions(publisher);
+        verify(processor, times(1))
+                .processPaymentFailure(event);
+
+        verifyNoMoreInteractions(processor);
     }
 }

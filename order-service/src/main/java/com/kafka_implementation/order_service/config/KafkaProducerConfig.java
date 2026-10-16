@@ -3,6 +3,7 @@ package com.kafka_implementation.order_service.config;
 import com.kafka_implementation.shared_events.base.DomainEvent;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,7 +38,7 @@ public class KafkaProducerConfig {
         props.put(ProducerConfig.RETRIES_CONFIG, 5);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
-        props.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false); // avoid extra headers
+        props.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
 
         return new DefaultKafkaProducerFactory<>(props);
     }
@@ -46,4 +47,34 @@ public class KafkaProducerConfig {
     public KafkaTemplate<String, DomainEvent> orderKafkaTemplate() {
         return new KafkaTemplate<>(orderProducerFactory());
     }
+
+    @Bean("outboxProducerFactory")
+    public ProducerFactory<String, String> outboxProducerFactory() {
+
+        Map<String, Object> props =
+                new HashMap<>(kafkaProperties.buildProducerProperties());
+
+        props.put(
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class
+        );
+
+        props.put(
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class
+        );
+
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+
+    @Bean("outboxKafkaTemplate")
+    public KafkaTemplate<String, String> outboxKafkaTemplate(
+            @Qualifier("outboxProducerFactory")
+            ProducerFactory<String, String> producerFactory
+    ) {
+        return new KafkaTemplate<>(producerFactory);
+    }
+
 }

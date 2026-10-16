@@ -5,6 +5,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.kafka_implementation.order_service.outbox.service.OutboxWriter;
 import com.kafka_implementation.shared_events.order.OrderFailedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
+import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
+import com.kafka_implementation.shared_events.order.OrderCompletedEvent;
 
 import static com.kafka_implementation.shared_events.base.EventMetadataFactory.next;
 import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
@@ -26,6 +29,64 @@ public class OrderEventProcessor {
         this.orderService = orderService;
         this.idempotencyGuard = idempotencyGuard;
         this.outboxWriter = outboxWriter;
+    }
+
+    @Transactional
+    public boolean processInventoryReserved(InventoryReservedEvent event) {
+
+        UUID incomingEventId = event.metadata().eventId();
+        UUID orderId = event.orderId();
+
+        // 1. Deduplicate the incoming Kafka event.
+        if (idempotencyGuard.alreadyProcessed(incomingEventId)) {
+            return false;
+        }
+
+        // 2. Transition the Order to COMPLETED.
+        orderService.complete(orderId);
+
+        // 3. Construct the outgoing domain event.
+        OrderCompletedEvent outgoingEvent = new OrderCompletedEvent(
+                next(event.metadata(), "order-service", 1),
+                orderId
+        );
+
+        // 4. Persist the outgoing event in the same MySQL transaction.
+        outboxWriter.store(
+                outgoingEvent.metadata().eventId(),
+                ORDER_EVENTS_V1,
+                outgoingEvent
+        );
+
+        return true;
+    }
+
+    @Transactional
+    public boolean processInventoryFailure(
+            InventoryReservationFailedEvent event
+    ) {
+        UUID incomingEventId = event.metadata().eventId();
+        UUID orderId = event.orderId();
+
+        if (idempotencyGuard.alreadyProcessed(incomingEventId)) {
+            return false;
+        }
+
+        orderService.cancel(orderId);
+
+        OrderFailedEvent outgoingEvent = new OrderFailedEvent(
+                next(event.metadata(), "order-service", 1),
+                orderId,
+                event.reason()
+        );
+
+        outboxWriter.store(
+                outgoingEvent.metadata().eventId(),
+                ORDER_EVENTS_V1,
+                outgoingEvent
+        );
+
+        return true;
     }
 
     @Transactional

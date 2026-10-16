@@ -2,29 +2,27 @@ package com.kafka_implementation.order_service.service;
 
 import com.kafka_implementation.order_service.domain.Order;
 import com.kafka_implementation.order_service.domain.OrderStatus;
+import com.kafka_implementation.order_service.outbox.service.OutboxWriter;
 import com.kafka_implementation.order_service.repository.OrderRepository;
 
+import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.UUID;
-
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
+import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -34,6 +32,9 @@ class OrderServiceTest {
 
     @InjectMocks
     private OrderService orderService;
+
+    @Mock
+    private OutboxWriter outboxWriter;
 
     private Order order;
 
@@ -58,6 +59,11 @@ class OrderServiceTest {
 
         // Assert
         assertThat(result).isSameAs(order);
+        verify(outboxWriter, times(1)).store(
+                any(UUID.class),
+                eq(ORDER_EVENTS_V1),
+                any(OrderCreatedEvent.class)
+        );
         verify(repository).save(order);
     }
 
