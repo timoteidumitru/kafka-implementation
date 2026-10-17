@@ -6,6 +6,7 @@ import com.kafka_implementation.order_service.domain.OrderStatus;
 import com.kafka_implementation.order_service.outbox.domain.OutboxEvent;
 import com.kafka_implementation.order_service.outbox.domain.OutboxStatus;
 import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepository;
+import com.kafka_implementation.order_service.outbox.service.OutboxClaimService;
 import com.kafka_implementation.order_service.outbox.service.OutboxPublicationStateService;
 import com.kafka_implementation.order_service.outbox.service.OutboxWriter;
 import com.kafka_implementation.order_service.repository.OrderRepository;
@@ -15,6 +16,8 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservationFail
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,11 +33,19 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,7 +60,8 @@ import static org.mockito.Mockito.*;
         OutboxWriter.class,
         OutboxPublicationStateService.class,
         JacksonAutoConfiguration.class,
-        MySQLTestConfiguration.class
+        MySQLTestConfiguration.class,
+        OutboxClaimService.class
 })
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
@@ -85,6 +97,15 @@ class OrderServiceIT {
     @SpyBean
     private OutboxWriter outboxWriter;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private OutboxClaimService outboxClaimService;
+
     private Order order;
 
     @BeforeEach
@@ -96,6 +117,345 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldPreventTwoWorkersFromClaimingSameOutboxEvent()
+            throws Exception {
+
+        // Arrange: one pending event, committed to MySQL.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        UUID workerA = UUID.randomUUID();
+        UUID workerB = UUID.randomUUID();
+
+        Instant leaseExpiresAt = Instant.now()
+                .plusSeconds(60)
+                .truncatedTo(ChronoUnit.MICROS);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        CountDownLatch workersReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Future<List<OutboxEvent>> resultA = executor.submit(() -> {
+                workersReady.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Start timed out");
+                }
+
+                return outboxClaimService.claimPendingBatch(
+                        workerA, leaseExpiresAt, 1
+                );
+            });
+
+            Future<List<OutboxEvent>> resultB = executor.submit(() -> {
+                workersReady.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Start timed out");
+                }
+
+                return outboxClaimService.claimPendingBatch(
+                        workerB, leaseExpiresAt, 1
+                );
+            });
+
+            assertThat(workersReady.await(10, TimeUnit.SECONDS))
+                    .isTrue();
+
+            // Let both workers attempt claiming.
+            start.countDown();
+
+            List<OutboxEvent> claimedA =
+                    resultA.get(15, TimeUnit.SECONDS);
+
+            List<OutboxEvent> claimedB =
+                    resultB.get(15, TimeUnit.SECONDS);
+
+            // Exactly one claim across both workers.
+            assertThat(claimedA.size() + claimedB.size())
+                    .isEqualTo(1);
+
+            // Verify the actual committed database ownership.
+            entityManager.clear();
+
+            OutboxEvent reloaded = outboxEventRepository
+                    .findById(outboxId)
+                    .orElseThrow();
+
+            assertThat(reloaded.getStatus())
+                    .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+            assertThat(reloaded.getClaimToken())
+                    .isNotNull();
+
+            UUID expectedOwner =
+                    claimedA.isEmpty() ? workerB : workerA;
+
+            assertThat(reloaded.getClaimedBy())
+                    .isEqualTo(expectedOwner);
+
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldAtomicallyClaimPendingOutboxEvent() {
+
+        // Arrange
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        UUID workerId = UUID.randomUUID();
+
+        Instant leaseExpiresAt = Instant.now()
+                .plusSeconds(60)
+                .truncatedTo(ChronoUnit.MICROS);
+
+        // Act: claiming service must manage its own transaction.
+        List<OutboxEvent> claimed =
+                outboxClaimService.claimPendingBatch(
+                        workerId,
+                        leaseExpiresAt,
+                        1
+                );
+
+        // Assert: exactly one record was claimed.
+        assertThat(claimed).hasSize(1);
+
+        assertThat(claimed.get(0).getId())
+                .isEqualTo(outboxId);
+
+        // Read the committed state from MySQL.
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimedBy())
+                .isEqualTo(workerId);
+
+        assertThat(reloaded.getClaimToken())
+                .isNotNull();
+
+        assertThat(reloaded.getLeaseExpiresAt())
+                .isEqualTo(leaseExpiresAt);
+    }
+
+    @Test
+    void shouldSkipOutboxEventLockedByAnotherTransaction() throws Exception {
+
+        // Arrange: persist the event before starting the workers.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID eventId = outboxEventRepository.saveAndFlush(event).getId();
+
+        // Coordinates the two transactions.
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        TransactionTemplate transactions =
+                new TransactionTemplate(transactionManager);
+
+        Future<UUID> workerA = null;
+
+        try {
+            // Worker A starts its own transaction.
+            workerA = executor.submit(() ->
+                    transactions.execute(status -> {
+
+                        List<OutboxEvent> selected =
+                                outboxEventRepository.lockPendingBatch(1);
+
+                        assertThat(selected).hasSize(1);
+
+                        UUID lockedId = selected.get(0).getId();
+
+                        // Tell the test that Worker A holds the lock.
+                        lockAcquired.countDown();
+
+                        try {
+                            if (!releaseLock.await(10, TimeUnit.SECONDS)) {
+                                throw new IllegalStateException(
+                                        "Timed out waiting to release lock"
+                                );
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(e);
+                        }
+
+                        return lockedId;
+                    })
+            );
+
+            // Wait until Worker A has acquired its row lock.
+            assertThat(lockAcquired.await(10, TimeUnit.SECONDS))
+                    .isTrue();
+
+            // Worker B uses another transaction and connection.
+            List<OutboxEvent> workerBSelection =
+                    transactions.execute(status ->
+                            outboxEventRepository.lockPendingBatch(1)
+                    );
+
+            // Worker B must skip the locked event.
+            assertThat(workerBSelection).isEmpty();
+
+        } finally {
+            // Allow Worker A to complete its transaction.
+            releaseLock.countDown();
+            executor.shutdown();
+        }
+
+        // Worker A successfully held the expected row.
+        assertThat(workerA.get(10, TimeUnit.SECONDS))
+                .isEqualTo(eventId);
+    }
+
+    @Test
+    @Transactional
+    void shouldSelectOnlyPendingOutboxEventsForClaiming() {
+
+        // Arrange: create two pending events.
+        OutboxEvent pendingOne = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        OutboxEvent pendingTwo = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        // Create an event already claimed by another worker.
+        OutboxEvent inProgress = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        inProgress.claim(
+                UUID.randomUUID(),
+                Instant.now().plusSeconds(60)
+        );
+
+        outboxEventRepository.saveAll(
+                List.of(pendingOne, pendingTwo, inProgress)
+        );
+
+        outboxEventRepository.flush();
+
+        // Act: claim selection is limited to one event.
+        List<OutboxEvent> selected =
+                outboxEventRepository.lockPendingBatch(1);
+
+        // Assert
+        assertThat(selected).hasSize(1);
+
+        assertThat(selected.get(0).getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+
+        assertThat(selected.get(0).getId())
+                .isIn(pendingOne.getId(), pendingTwo.getId());
+
+        assertThat(selected)
+                .noneMatch(event ->
+                        event.getId().equals(inProgress.getId())
+                );
+    }
+
+    @Test
+    void shouldPersistOutboxClaimOwnershipAndLease() {
+
+        // ARRANGE: create a pending event.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID workerId = UUID.randomUUID();
+
+        Instant leaseExpiresAt =
+                Instant.parse("2026-10-17T21:00:00Z");
+
+        // ACT: claim the event.
+        event.claim(workerId, leaseExpiresAt);
+
+        // Capture the token generated by claim().
+        UUID originalClaimToken = event.getClaimToken();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        // Discard managed objects so the next read
+        // cannot simply return the same Java instance.
+        entityManager.clear();
+
+        // Reload from MySQL.
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        // ASSERT: claim information survived persistence.
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimedBy())
+                .isEqualTo(workerId);
+
+        assertThat(reloaded.getLeaseExpiresAt())
+                .isEqualTo(leaseExpiresAt);
+
+        // verify the claim token survived persistence.
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(originalClaimToken);
     }
 
     @Test

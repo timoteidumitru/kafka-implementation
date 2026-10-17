@@ -65,6 +65,9 @@ public class OutboxEvent {
     @Column(name = "lease_expires_at")
     private Instant leaseExpiresAt;
 
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
     protected OutboxEvent() {
         // Required by JPA
     }
@@ -84,6 +87,10 @@ public class OutboxEvent {
         this.status = OutboxStatus.PENDING;
         this.createdAt = Instant.now();
         this.attemptCount = 0;
+    }
+
+    public UUID getClaimToken() {
+        return claimToken;
     }
 
     public void recordAttempt() {
@@ -123,6 +130,7 @@ public class OutboxEvent {
             );
         }
 
+        this.claimToken = UUID.randomUUID();
         this.claimedBy = workerId;
         this.leaseExpiresAt = leaseExpiresAt;
         this.status = OutboxStatus.IN_PROGRESS;
