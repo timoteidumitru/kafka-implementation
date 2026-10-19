@@ -3,7 +3,6 @@ package com.kafka_implementation.order_service.outbox.service;
 
 import com.kafka_implementation.order_service.outbox.domain.OutboxEvent;
 import com.kafka_implementation.order_service.outbox.domain.OutboxStatus;
-import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +10,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.Instant;
 import java.util.concurrent.CompletionException;
 
 import java.util.UUID;
@@ -25,9 +26,6 @@ class OutboxRelayTest {
 
     @Mock
     private OutboxKafkaPublisher publisher;
-
-    @Mock
-    private OutboxEventRepository repository;
 
     @Mock
     private OutboxPublicationStateService stateService;
@@ -53,6 +51,51 @@ class OutboxRelayTest {
                 "id",
                 UUID.randomUUID()
         );
+
+        // Give the event a real claim and ownership token.
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now().plusSeconds(60)
+        );
+    }
+
+    @Test
+    void shouldFailWhenPublicationAcknowledgementLosesOwnership() {
+
+        // Arrange: Kafka will acknowledge successfully.
+        CompletableFuture<SendResult<String, String>> kafkaFuture =
+                new CompletableFuture<>();
+
+        when(publisher.publish(event))
+                .thenReturn(kafkaFuture);
+
+        // MySQL rejects the acknowledgement: the claim is stale.
+        when(stateService.markPublished(
+                event.getId(),
+                event.getClaimToken()
+        )).thenReturn(false);
+
+        // Act
+        CompletableFuture<Void> result = relay.publish(event);
+
+        kafkaFuture.complete(null);
+
+        // Assert: rejected ownership must not look successful.
+        assertThat(result).isCompletedExceptionally();
+
+        // Kafka succeeded, so this is not a Kafka send failure.
+
+        verify(stateService, never())
+                .recordFailedAttempt(
+                        any(UUID.class),
+                        any(UUID.class)
+                );
+
+        verify(stateService, times(1))
+                .markPublished(
+                        event.getId(),
+                        event.getClaimToken()
+                );
     }
 
     @Test
@@ -64,6 +107,16 @@ class OutboxRelayTest {
 
         when(publisher.publish(event))
                 .thenReturn(kafkaFuture);
+
+        assertThat(event.getClaimToken()).isNotNull();
+
+        assertThat(event.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        when(stateService.markPublished(
+                event.getId(),
+                event.getClaimToken()
+        )).thenReturn(true);
 
         // Act: relay initiates publication.
         CompletableFuture<Void> result = relay.publish(event);
@@ -80,10 +133,16 @@ class OutboxRelayTest {
         assertThat(result).isCompleted();
 
         verify(stateService, times(1))
-                .markPublished(event.getId());
+                .markPublished(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
         verify(stateService, never())
-                .recordFailedAttempt(any(UUID.class));
+                .recordFailedAttempt(
+                        any(UUID.class),
+                        any(UUID.class)
+                );
 
         verify(publisher, times(1))
                 .publish(event);
@@ -108,7 +167,10 @@ class OutboxRelayTest {
         // MySQL also fails while recording the Kafka failure.
         doThrow(databaseFailure)
                 .when(stateService)
-                .recordFailedAttempt(event.getId());
+                .recordFailedAttempt(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
         // Act
         CompletableFuture<Void> result = relay.publish(event);
@@ -121,10 +183,16 @@ class OutboxRelayTest {
                 .hasCause(kafkaFailure);
 
         verify(stateService, times(1))
-                .recordFailedAttempt(event.getId());
+                .recordFailedAttempt(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
         verify(stateService, never())
-                .markPublished(any(UUID.class));
+                .markPublished(
+                        any(UUID.class),
+                        any(UUID.class)
+                );
     }
 
     @Test
@@ -143,7 +211,10 @@ class OutboxRelayTest {
 
         doThrow(databaseFailure)
                 .when(stateService)
-                .markPublished(event.getId());
+                .markPublished(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
         // Act: start publication.
         CompletableFuture<Void> result = relay.publish(event);
@@ -153,13 +224,18 @@ class OutboxRelayTest {
 
         // Assert: database failure must propagate.
         assertThat(result).isCompletedExceptionally();
-
         verify(stateService, times(1))
-                .markPublished(event.getId());
+                .markPublished(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
         // This was NOT a failed Kafka publication.
         verify(stateService, never())
-                .recordFailedAttempt(any());
+                .recordFailedAttempt(
+                        any(UUID.class),
+                        any(UUID.class)
+                );
 
         verify(publisher, times(1))
                 .publish(event);
@@ -183,7 +259,7 @@ class OutboxRelayTest {
         verifyNoInteractions(stateService);
 
         assertThat(event.getStatus())
-                .isEqualTo(OutboxStatus.PENDING);
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
 
         // Simulate Kafka reporting a failed publication.
         kafkaFuture.completeExceptionally(
@@ -193,16 +269,23 @@ class OutboxRelayTest {
         // Assert: the relay observes the failed acknowledgement.
         assertThat(result).isCompletedExceptionally();
 
+        // Kafka failed, so record the failed attempt.
         verify(stateService, times(1))
-                .recordFailedAttempt(event.getId());
+                .recordFailedAttempt(
+                        event.getId(),
+                        event.getClaimToken()
+                );
 
-        // No successful-publication state update is allowed.
+        // Kafka failed, so never mark the event published.
         verify(stateService, never())
-                .markPublished(any(UUID.class));
+                .markPublished(
+                        any(UUID.class),
+                        any(UUID.class)
+                );
 
         // Database event remains eligible for retry.
         assertThat(event.getStatus())
-                .isEqualTo(OutboxStatus.PENDING);
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
 
         assertThat(event.getPublishedAt())
                 .isNull();

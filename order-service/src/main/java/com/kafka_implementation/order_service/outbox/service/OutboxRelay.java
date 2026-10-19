@@ -23,17 +23,33 @@ public class OutboxRelay {
 
         return publisher.publish(event)
 
-                // Handles failure of Kafka publication only.
-                .whenComplete((sendResult, kafkaFailure) -> {
-                    if (kafkaFailure != null) {
-                        stateService.recordFailedAttempt(event.getId());
-                    }
-                })
+            // Handles failure of Kafka publication only.
+            .whenComplete((sendResult, kafkaFailure) -> {
+                if (kafkaFailure != null) {
+                    stateService.recordFailedAttempt(
+                        event.getId(),
+                        event.getClaimToken()
+                    );
+                }
+            })
 
-                // Runs only if Kafka and the previous stage succeeded.
-                .thenAccept(sendResult ->
-                        stateService.markPublished(event.getId())
+            // Runs only if Kafka and the previous stage succeeded.
+            .thenAccept(sendResult -> {
+
+                boolean markedPublished = stateService.markPublished(
+                    event.getId(),
+                    event.getClaimToken()
                 );
+
+                if (!markedPublished) {
+                    throw new IllegalStateException(
+                        "Outbox publication acknowledgement rejected: " +
+                                "claim ownership lost or event no longer IN_PROGRESS. " +
+                                "outboxEventId=" + event.getId()
+                    );
+                }
+            });
+
     }
 
 }

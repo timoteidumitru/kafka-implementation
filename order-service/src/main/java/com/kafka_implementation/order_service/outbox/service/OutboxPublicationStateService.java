@@ -7,6 +7,7 @@ import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepos
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -21,41 +22,51 @@ public class OutboxPublicationStateService {
     }
 
     @Transactional
-    public void recordFailedAttempt(UUID outboxEventId) {
+    public boolean recordFailedAttempt(
+            UUID outboxEventId,
+            UUID claimToken
+    ) {
+        Objects.requireNonNull(
+                outboxEventId,
+                "outboxEventId must not be null"
+        );
 
-        OutboxEvent event = repository.findById(outboxEventId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Outbox event not found: " + outboxEventId
-                ));
+        Objects.requireNonNull(
+                claimToken,
+                "claimToken must not be null"
+        );
 
-        // Never record a failed publication attempt
-        // against an already published event.
-        if (event.getStatus() == OutboxStatus.PUBLISHED) {
-            return;
-        }
+        int updatedRows =
+                repository.incrementAttemptIfClaimMatches(
+                        outboxEventId,
+                        claimToken
+                );
 
-        event.recordAttempt();
-
-        // Hibernate dirty checking persists the increment
-        // when the transaction commits.
+        return updatedRows == 1;
     }
 
     @Transactional
-    public void markPublished(UUID outboxEventId) {
+    public boolean markPublished(
+            UUID outboxEventId,
+            UUID claimToken
+    ) {
+        Objects.requireNonNull(
+                outboxEventId,
+                "outboxEventId must not be null"
+        );
 
-        OutboxEvent event = repository.findById(outboxEventId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Outbox event not found: " + outboxEventId
-                ));
+        Objects.requireNonNull(
+                claimToken,
+                "claimToken must not be null"
+        );
 
-        // Idempotency: do not overwrite the original publication timestamp.
-        if (event.getStatus() == OutboxStatus.PUBLISHED) {
-            return;
-        }
+        int updatedRows =
+                repository.markPublishedIfClaimMatches(
+                        outboxEventId,
+                        claimToken
+                );
 
-        event.markPublished();
-
-        // No repository.save() is required:
-        // Hibernate dirty checking persists the state at commit.
+        return updatedRows == 1;
     }
+
 }

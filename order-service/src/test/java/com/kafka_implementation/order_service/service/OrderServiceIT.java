@@ -120,6 +120,301 @@ class OrderServiceIT {
     }
 
     @Test
+    void shouldIncrementFailedAttemptWhenClaimTokenMatches() {
+
+        // Arrange: create and claim an outbox event.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID validClaimToken = event.getClaimToken();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Act: the legitimate worker records a Kafka failure.
+        boolean updated = stateService.recordFailedAttempt(
+                outboxId,
+                validClaimToken
+        );
+
+        // Assert: the database accepted the update.
+        assertThat(updated).isTrue();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getAttemptCount())
+                .isEqualTo(1);
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(validClaimToken);
+
+        assertThat(reloaded.getPublishedAt())
+                .isNull();
+    }
+
+    @Test
+    void shouldRejectStaleClaimTokenWhenRecordingFailedAttempt() {
+
+        // Arrange: create and claim an outbox event.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID currentClaimToken = event.getClaimToken();
+        UUID staleClaimToken = UUID.randomUUID();
+
+        assertThat(staleClaimToken)
+                .isNotEqualTo(currentClaimToken);
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Act: a stale worker attempts to record a Kafka failure.
+        boolean updated = stateService.recordFailedAttempt(
+                outboxId,
+                staleClaimToken
+        );
+
+        // Assert: stale ownership must be rejected.
+        assertThat(updated).isFalse();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(currentClaimToken);
+
+        assertThat(reloaded.getAttemptCount())
+                .isZero();
+
+        assertThat(reloaded.getPublishedAt())
+                .isNull();
+    }
+
+    @Test
+    void shouldRejectDuplicatePublicationAcknowledgement() {
+
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID claimToken = event.getClaimToken();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // First acknowledgement: accepted.
+        boolean firstResult = stateService.markPublished(
+                outboxId, claimToken
+        );
+
+        assertThat(firstResult).isTrue();
+
+        OutboxEvent firstPublication = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        Instant firstPublishedAt =
+                firstPublication.getPublishedAt();
+
+        assertThat(firstPublishedAt).isNotNull();
+
+        entityManager.clear();
+
+        // Duplicate acknowledgement: rejected.
+        boolean secondResult = stateService.markPublished(
+                outboxId, claimToken
+        );
+
+        assertThat(secondResult).isFalse();
+
+        entityManager.clear();
+
+        // Published state and timestamp must remain unchanged.
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.PUBLISHED);
+
+        assertThat(reloaded.getPublishedAt())
+                .isEqualTo(firstPublishedAt);
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(claimToken);
+    }
+
+    @Test
+    void shouldMarkPublishedWhenClaimTokenMatches() {
+
+        // Arrange: create an event and assign its ownership.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID workerId = UUID.randomUUID();
+
+        event.claim(
+                workerId,
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID validClaimToken = event.getClaimToken();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Act: current owner acknowledges successful publication.
+        boolean updated = stateService.markPublished(
+                outboxId,
+                validClaimToken
+        );
+
+        // Assert: exactly one active claim should be updated.
+        assertThat(updated).isTrue();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.PUBLISHED);
+
+        assertThat(reloaded.getPublishedAt())
+                .isNotNull();
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(validClaimToken);
+    }
+
+    @Test
+    void shouldRejectStaleClaimTokenWhenMarkingPublished() {
+
+        // Arrange: an event is claimed by the current worker.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "order.events.v1",
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID currentWorker = UUID.randomUUID();
+
+        event.claim(
+                currentWorker,
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID currentClaimToken = event.getClaimToken();
+        UUID staleClaimToken = UUID.randomUUID();
+
+        assertThat(staleClaimToken)
+                .isNotEqualTo(currentClaimToken);
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Act: a worker presents a token it does not own.
+        boolean updated =
+                stateService.markPublished(
+                        outboxId,
+                        staleClaimToken
+                );
+
+        // Assert: the stale worker must not change the event.
+        assertThat(updated).isFalse();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(currentClaimToken);
+
+        assertThat(reloaded.getPublishedAt())
+                .isNull();
+    }
+
+    @Test
     void shouldPreventTwoWorkersFromClaimingSameOutboxEvent()
             throws Exception {
 
@@ -461,7 +756,6 @@ class OrderServiceIT {
     @Test
     void shouldRecordFailedPublicationAttemptWithoutMarkingEventPublished() {
 
-        // Arrange: an unpublished event exists in MySQL.
         OutboxEvent event = new OutboxEvent(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -470,51 +764,67 @@ class OrderServiceIT {
                 "{\"eventType\":\"ORDER_CREATED\"}"
         );
 
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID claimToken = event.getClaimToken();
+
         UUID outboxId = outboxEventRepository
                 .saveAndFlush(event)
                 .getId();
 
-        // Act: record a failed Kafka publication attempt.
-        stateService.recordFailedAttempt(outboxId);
+        entityManager.clear();
 
-        // Assert: the event remains eligible for retry.
-        OutboxEvent updated = outboxEventRepository
+        boolean updated = stateService.recordFailedAttempt(
+                outboxId,
+                claimToken
+        );
+
+        assertThat(updated).isTrue();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
                 .findById(outboxId)
                 .orElseThrow();
 
-        assertThat(updated.getStatus())
-                .isEqualTo(OutboxStatus.PENDING);
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
 
-        assertThat(updated.getAttemptCount())
+        assertThat(reloaded.getAttemptCount())
                 .isEqualTo(1);
 
-        assertThat(updated.getPublishedAt())
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(claimToken);
+
+        assertThat(reloaded.getPublishedAt())
                 .isNull();
     }
 
     @Test
     void shouldRejectPublicationAcknowledgementForUnknownOutboxEvent() {
 
-        // Arrange: generate an ID that does not exist in MySQL.
         UUID unknownOutboxId = UUID.randomUUID();
+        UUID claimToken = UUID.randomUUID();
 
         assertThat(outboxEventRepository.existsById(unknownOutboxId))
                 .isFalse();
 
-        // Act + Assert
-        assertThatThrownBy(() ->
-                stateService.markPublished(unknownOutboxId)
-        )
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(
-                        "Outbox event not found: " + unknownOutboxId
-                );
+        boolean updated = stateService.markPublished(
+                unknownOutboxId,
+                claimToken
+        );
+
+        assertThat(updated).isFalse();
     }
 
     @Test
     void shouldPreservePublishedTimestampWhenAcknowledgementIsRepeated() {
 
-        // Arrange
         OutboxEvent event = new OutboxEvent(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -523,12 +833,30 @@ class OrderServiceIT {
                 "{\"eventType\":\"ORDER_CREATED\"}"
         );
 
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        UUID claimToken = event.getClaimToken();
+
         UUID outboxId = outboxEventRepository
                 .saveAndFlush(event)
                 .getId();
 
-        // First successful acknowledgement
-        stateService.markPublished(outboxId);
+        entityManager.clear();
+
+        // First acknowledgement succeeds.
+        boolean firstResult = stateService.markPublished(
+                outboxId,
+                claimToken
+        );
+
+        assertThat(firstResult).isTrue();
+
+        entityManager.clear();
 
         OutboxEvent firstPublication = outboxEventRepository
                 .findById(outboxId)
@@ -539,28 +867,35 @@ class OrderServiceIT {
 
         assertThat(originalPublishedAt).isNotNull();
 
-        // Act: simulate repeated acknowledgement handling
-        stateService.markPublished(outboxId);
+        entityManager.clear();
 
-        // Assert: timestamp and state are preserved
-        OutboxEvent afterRepeatedAcknowledgement =
-                outboxEventRepository.findById(outboxId)
-                        .orElseThrow();
+        // Second acknowledgement is rejected.
+        boolean secondResult = stateService.markPublished(
+                outboxId,
+                claimToken
+        );
 
-        assertThat(afterRepeatedAcknowledgement.getStatus())
+        assertThat(secondResult).isFalse();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
                 .isEqualTo(OutboxStatus.PUBLISHED);
 
-        assertThat(afterRepeatedAcknowledgement.getPublishedAt())
+        assertThat(reloaded.getPublishedAt())
                 .isEqualTo(originalPublishedAt);
 
-        assertThat(afterRepeatedAcknowledgement.getAttemptCount())
+        assertThat(reloaded.getAttemptCount())
                 .isZero();
     }
 
     @Test
     void shouldPersistPublishedStatusAfterKafkaAcknowledgement() {
 
-        // ARRANGE: a pending event exists in MySQL.
         OutboxEvent event = new OutboxEvent(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -569,33 +904,45 @@ class OrderServiceIT {
                 "{\"eventType\":\"ORDER_CREATED\"}"
         );
 
-        OutboxEvent persisted =
-                outboxEventRepository.saveAndFlush(event);
+        event.claim(
+                UUID.randomUUID(),
+                Instant.now()
+                        .plusSeconds(60)
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
 
-        UUID outboxId = persisted.getId();
+        UUID claimToken = event.getClaimToken();
 
-        assertThat(persisted.getStatus())
-                .isEqualTo(OutboxStatus.PENDING);
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
 
-        assertThat(persisted.getPublishedAt())
-                .isNull();
+        entityManager.clear();
 
-        // ACT: Kafka has acknowledged publication.
-        stateService.markPublished(outboxId);
+        boolean updated = stateService.markPublished(
+                outboxId,
+                claimToken
+        );
 
-        // ASSERT: load the committed record from MySQL.
-        OutboxEvent updated = outboxEventRepository
+        assertThat(updated).isTrue();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
                 .findById(outboxId)
                 .orElseThrow();
 
-        assertThat(updated.getStatus())
+        assertThat(reloaded.getStatus())
                 .isEqualTo(OutboxStatus.PUBLISHED);
 
-        assertThat(updated.getPublishedAt())
+        assertThat(reloaded.getPublishedAt())
                 .isNotNull();
 
-        assertThat(updated.getAttemptCount())
+        assertThat(reloaded.getAttemptCount())
                 .isZero();
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(claimToken);
     }
 
     @Test
