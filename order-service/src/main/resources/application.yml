@@ -1,41 +1,75 @@
+# ======================================================
+# ORDER SERVICE - SHARED CONFIGURATION
+# ======================================================
+
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
 
 spring:
   application:
     name: ${SPRING_APPLICATION_NAME:order-service}
 
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-db:3306/orders_db}
-    username: ${SPRING_DATASOURCE_USERNAME:admin}
-    password: ${SPRING_DATASOURCE_PASSWORD:admin}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    jpa:
-      hibernate:
-        ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
-      database-platform: ${SPRING_JPA_DATABASE_PLATFORM:org.hibernate.dialect.MySQL8Dialect}
-      show-sql: true
+  # Load resilience policies for all environments.
+  config:
+    import: "classpath:application-resilience.yml"
 
+  # ----------------------------------------------------
+  # DATABASE
+  # Connection details belong to environment profiles.
+  # ----------------------------------------------------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Safe default; local and test profiles override.
+      # Production schema changes should use migrations.
+      ddl-auto: validate
+    show-sql: false
+
+  # ----------------------------------------------------
+  # KAFKA
+  # Broker address belongs to environment profiles.
+  # ----------------------------------------------------
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
     producer:
-      observation-enabled: true
       acks: all
       retries: 5
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
     consumer:
-      observation-enabled: true
       group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:order-service}
       auto-offset-reset: ${SPRING_KAFKA_AUTO_OFFSET_RESET:earliest}
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
+        # TODO: Restrict after reviewing actual event packages.
         spring.json.trusted.packages: "*"
 
-# 🔧 Application-level property-driven topics
+    # Observation is configured on the KafkaTemplate
+    # and listener container, not producer/consumer.
+    template:
+      observation-enabled: true
+
+    listener:
+      observation-enabled: true
+
+# ======================================================
+# APPLICATION SETTINGS
+# ======================================================
 app:
+  outbox:
+    recovery:
+      # Explicit opt-in per environment.
+      enabled: false
+      batch-size: 100
+      fixed-delay-ms: 10000
+
+  # Keep this prefix until the Java topic configuration
+  # bindings have been reviewed.
   topics:
     order-events: order.events.v1
     order-events-dlt: order.events.v1.DLT
@@ -43,28 +77,27 @@ app:
     inventory-events: inventory.events.v1
     notification-events: notification.events.v1
 
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://eureka-server:8761/eureka}
-
+# ======================================================
+# ACTUATOR / OBSERVABILITY
+# ======================================================
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics,prometheus
+
   endpoint:
     health:
       probes:
         enabled: true
+
   metrics:
     tags:
       application: ${spring.application.name}
     distribution:
       percentiles-histogram:
         http.server.requests: true
+
   tracing:
     sampling:
-      probability: 1.0
-  zipkin:
-    endpoint: http://zipkin:9411/api/v2/spans
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}

@@ -1,0 +1,35 @@
+# ======================================================
+# DOCKER ENVIRONMENT
+# ======================================================
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-db:3306/orders_db}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:admin}
+
+  jpa:
+    hibernate:
+      # Temporary compatibility with the current
+      # local Docker setup. Replace with validate after
+      # introducing versioned database migrations.
+      ddl-auto: update
+    show-sql: false
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+
+app:
+  outbox:
+    recovery:
+      enabled: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://eureka-server:8761/eureka}
+
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://zipkin:9411/api/v2/spans}

@@ -9,11 +9,29 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.Modifying;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 public interface OutboxEventRepository
         extends JpaRepository<OutboxEvent, UUID> {
+
+    @Query(
+            value = """
+        SELECT *
+        FROM outbox_event
+        WHERE status = 'IN_PROGRESS'
+          AND lease_expires_at <= :now
+        ORDER BY lease_expires_at, id
+        LIMIT :batchSize
+        FOR UPDATE SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<OutboxEvent> lockExpiredBatch(
+            @Param("now") Instant now,
+            @Param("batchSize") int batchSize
+    );
 
     @Query(
             value = """

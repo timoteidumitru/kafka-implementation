@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.*;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.*;
                         "org.springframework.boot.actuate.autoconfigure.tracing.MicrometerTracingAutoConfiguration"
         }
 )
+@ActiveProfiles("test")
 class OrderEventListenerTest {
 
     @SpringBootConfiguration

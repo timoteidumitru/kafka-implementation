@@ -8,6 +8,7 @@ import com.kafka_implementation.order_service.outbox.domain.OutboxStatus;
 import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepository;
 import com.kafka_implementation.order_service.outbox.service.OutboxClaimService;
 import com.kafka_implementation.order_service.outbox.service.OutboxPublicationStateService;
+import com.kafka_implementation.order_service.outbox.service.OutboxRecoveryService;
 import com.kafka_implementation.order_service.outbox.service.OutboxWriter;
 import com.kafka_implementation.order_service.repository.OrderRepository;
 import com.kafka_implementation.order_service.repository.ProcessedEventRepository;
@@ -29,6 +30,7 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +48,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Callable;
 
 import static com.kafka_implementation.shared_events.topics.Topics.ORDER_EVENTS_V1;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,7 +64,8 @@ import static org.mockito.Mockito.*;
         OutboxPublicationStateService.class,
         JacksonAutoConfiguration.class,
         MySQLTestConfiguration.class,
-        OutboxClaimService.class
+        OutboxClaimService.class,
+        OutboxRecoveryService.class
 })
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
@@ -71,6 +75,7 @@ import static org.mockito.Mockito.*;
         "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ActiveProfiles("test")
 class OrderServiceIT {
 
     @Autowired
@@ -106,7 +111,12 @@ class OrderServiceIT {
     @Autowired
     private OutboxClaimService outboxClaimService;
 
+    @Autowired
+    private OutboxRecoveryService outboxRecoveryService;
+
     private Order order;
+
+    private OutboxEvent event;
 
     @BeforeEach
     void setUp() {
@@ -117,6 +127,554 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldRejectStalePublicationAfterRecoveryAndReclaim() {
+
+        // Arrange: Worker A claims an event.
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID workerA = UUID.randomUUID();
+        UUID workerB = UUID.randomUUID();
+
+        event.claim(workerA, now.minusSeconds(60));
+
+        UUID oldToken = event.getClaimToken();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Step 1: recover Worker A's expired claim.
+        int recovered = outboxRecoveryService
+                .recoverExpiredBatch(now, 1);
+
+        assertThat(recovered).isEqualTo(1);
+
+        // Step 2: Worker B claims the recovered event.
+        List<OutboxEvent> claimed = outboxClaimService
+                .claimPendingBatch(
+                        workerB,
+                        now.plusSeconds(60),
+                        1
+                );
+
+        assertThat(claimed).hasSize(1);
+
+        UUID newToken = claimed.get(0).getClaimToken();
+
+        assertThat(newToken)
+                .isNotNull()
+                .isNotEqualTo(oldToken);
+
+        // Step 3: Worker A's stale Kafka ACK arrives.
+        boolean stalePublished =
+                stateService.markPublished(
+                        outboxId,
+                        oldToken
+                );
+
+        // Old ownership must be rejected.
+        assertThat(stalePublished).isFalse();
+
+        // Also reject a stale failure callback.
+        boolean staleFailure =
+                stateService.recordFailedAttempt(
+                        outboxId,
+                        oldToken
+                );
+
+        assertThat(staleFailure).isFalse();
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        // Worker B must still own the event.
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(reloaded.getClaimedBy())
+                .isEqualTo(workerB);
+
+        assertThat(reloaded.getClaimToken())
+                .isEqualTo(newToken);
+
+        assertThat(reloaded.getPublishedAt()).isNull();
+        assertThat(reloaded.getAttemptCount()).isZero();
+
+        // Step 4: Worker B's legitimate ACK arrives.
+        boolean validPublished =
+                stateService.markPublished(
+                        outboxId,
+                        newToken
+                );
+
+        assertThat(validPublished).isTrue();
+
+        entityManager.clear();
+
+        OutboxEvent published = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(published.getStatus())
+                .isEqualTo(OutboxStatus.PUBLISHED);
+
+        assertThat(published.getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldAllowOnlyOneWorkerToRecoverSameExpiredEvent()
+            throws Exception {
+
+        // Arrange: one expired event in MySQL.
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID originalEventId = event.getEventId();
+
+        event.claim(
+                UUID.randomUUID(),
+                now.minusSeconds(60)
+        );
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Two independent worker threads.
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Callable<Integer> recoveryTask = () -> {
+
+                // Signal that this worker is ready.
+                ready.countDown();
+
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException(
+                            "Timed out waiting for recovery start"
+                    );
+                }
+
+                // Invoke the real Spring recovery service.
+                return outboxRecoveryService
+                        .recoverExpiredBatch(now, 1);
+            };
+
+            Future<Integer> workerA =
+                    executor.submit(recoveryTask);
+
+            Future<Integer> workerB =
+                    executor.submit(recoveryTask);
+
+            // Both workers are ready to begin.
+            assertThat(
+                    ready.await(10, TimeUnit.SECONDS)
+            ).isTrue();
+
+            // Release both workers together.
+            start.countDown();
+
+            int recoveredByA =
+                    workerA.get(10, TimeUnit.SECONDS);
+
+            int recoveredByB =
+                    workerB.get(10, TimeUnit.SECONDS);
+
+            // Across both workers, the event
+            // must be recovered exactly once.
+            assertThat(recoveredByA + recoveredByB)
+                    .isEqualTo(1);
+
+            assertThat(List.of(recoveredByA, recoveredByB))
+                    .containsExactlyInAnyOrder(0, 1);
+
+            entityManager.clear();
+
+            // Verify the final database state.
+            OutboxEvent reloaded = outboxEventRepository
+                    .findById(outboxId)
+                    .orElseThrow();
+
+            assertThat(reloaded.getStatus())
+                    .isEqualTo(OutboxStatus.PENDING);
+
+            assertThat(reloaded.getClaimedBy()).isNull();
+            assertThat(reloaded.getClaimToken()).isNull();
+            assertThat(reloaded.getLeaseExpiresAt()).isNull();
+
+            // Recovery must preserve the original event.
+            assertThat(reloaded.getEventId())
+                    .isEqualTo(originalEventId);
+
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldSkipExpiredEventLockedByAnotherRecoveryWorker()
+            throws Exception {
+
+        // Arrange: one expired outbox event.
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+
+         event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        event.claim(
+                UUID.randomUUID(),
+                now.minusSeconds(60)
+        );
+
+        UUID eventId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+
+        try {
+            // Worker A: lock the expired event and hold
+            // its transaction open.
+            Future<Integer> workerA = executor.submit(() -> {
+
+                TransactionTemplate transaction =
+                        new TransactionTemplate(transactionManager);
+
+                return transaction.execute(status -> {
+
+                    List<OutboxEvent> locked =
+                            outboxEventRepository.lockExpiredBatch(
+                                    now, 1
+                            );
+
+                    // Signal only after the database lock
+                    // has been acquired.
+                    lockAcquired.countDown();
+
+                    try {
+                        if (!releaseLock.await(
+                                10, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException(
+                                    "Timed out holding the row lock"
+                            );
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+
+                    return locked.size();
+                });
+            });
+
+            // Ensure Worker A obtained the lock.
+            assertThat(
+                    lockAcquired.await(10, TimeUnit.SECONDS)
+            ).isTrue();
+
+            // Worker B: attempt recovery while A
+            // is still holding the row lock.
+            Future<Integer> workerB = executor.submit(
+                    () -> outboxRecoveryService
+                            .recoverExpiredBatch(now, 1)
+            );
+
+            // B must skip the locked event.
+            int recoveredByB =
+                    workerB.get(10, TimeUnit.SECONDS);
+
+            assertThat(recoveredByB).isZero();
+
+            // Release A's lock and commit its transaction.
+            releaseLock.countDown();
+
+            assertThat(
+                    workerA.get(10, TimeUnit.SECONDS)
+            ).isEqualTo(1);
+
+            // Now the event is unlocked and recoverable.
+            int recoveredAfterRelease =
+                    outboxRecoveryService
+                            .recoverExpiredBatch(now, 1);
+
+            assertThat(recoveredAfterRelease).isEqualTo(1);
+
+            entityManager.clear();
+
+            OutboxEvent reloaded = outboxEventRepository
+                    .findById(eventId)
+                    .orElseThrow();
+
+            assertThat(reloaded.getStatus())
+                    .isEqualTo(OutboxStatus.PENDING);
+
+            assertThat(reloaded.getClaimToken()).isNull();
+            assertThat(reloaded.getClaimedBy()).isNull();
+
+        } finally {
+            // Always release Worker A, including on failure.
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldRecoverOnlyRequestedNumberOfExpiredEvents() {
+
+        // Arrange: three expired outbox events.
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+
+        List<OutboxEvent> events = new java.util.ArrayList<>();
+
+        for (int i = 0; i < 3; i++) {
+
+             event = new OutboxEvent(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    ORDER_EVENTS_V1,
+                    "ORDER_CREATED",
+                    "{\"eventType\":\"ORDER_CREATED\"}"
+            );
+
+            event.claim(
+                    UUID.randomUUID(),
+                    now.minusSeconds(60 + i)
+            );
+
+            events.add(event);
+        }
+
+        outboxEventRepository.saveAllAndFlush(events);
+        entityManager.clear();
+
+        // Act: recover a maximum of two events.
+        int recovered = outboxRecoveryService
+                .recoverExpiredBatch(now, 2);
+
+        // Assert: recovery respected the batch limit.
+        assertThat(recovered).isEqualTo(2);
+
+        entityManager.clear();
+
+        List<OutboxEvent> reloaded = events.stream()
+                .map(event -> outboxEventRepository
+                        .findById(event.getId())
+                        .orElseThrow())
+                .toList();
+
+        assertThat(reloaded.stream()
+                .filter(event ->
+                        event.getStatus() == OutboxStatus.PENDING)
+                .count()
+        ).isEqualTo(2);
+
+        assertThat(reloaded.stream()
+                .filter(event ->
+                        event.getStatus() == OutboxStatus.IN_PROGRESS)
+                .count()
+        ).isEqualTo(1);
+
+        // Act again: recover the remaining expired event.
+        int secondBatch = outboxRecoveryService
+                .recoverExpiredBatch(now, 2);
+
+        assertThat(secondBatch).isEqualTo(1);
+
+        entityManager.clear();
+
+        // All three have now been recovered.
+        for (OutboxEvent event : events) {
+
+            OutboxEvent updated = outboxEventRepository
+                    .findById(event.getId())
+                    .orElseThrow();
+
+            assertThat(updated.getStatus())
+                    .isEqualTo(OutboxStatus.PENDING);
+
+            assertThat(updated.getClaimToken())
+                    .isNull();
+        }
+    }
+
+    @Test
+    void shouldRecoverExpiredEventWithoutStealingActiveClaim() {
+
+        // Arrange: use a deterministic reference time.
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+
+        OutboxEvent expiredEvent = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        OutboxEvent activeEvent = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        UUID expiredWorker = UUID.randomUUID();
+        UUID activeWorker = UUID.randomUUID();
+
+        Instant activeLeaseExpiry = now.plusSeconds(60);
+
+        expiredEvent.claim(
+                expiredWorker,
+                now.minusSeconds(30)
+        );
+
+        activeEvent.claim(
+                activeWorker,
+                activeLeaseExpiry
+        );
+
+        UUID activeClaimToken = activeEvent.getClaimToken();
+
+        outboxEventRepository.saveAllAndFlush(
+                List.of(expiredEvent, activeEvent)
+        );
+
+        UUID expiredId = expiredEvent.getId();
+        UUID activeId = activeEvent.getId();
+
+        entityManager.clear();
+
+        // Act: only expired claims should be recovered.
+        int recovered = outboxRecoveryService
+                .recoverExpiredBatch(now, 10);
+
+        // Assert
+        assertThat(recovered).isEqualTo(1);
+
+        entityManager.clear();
+
+        OutboxEvent recoveredEvent = outboxEventRepository
+                .findById(expiredId)
+                .orElseThrow();
+
+        OutboxEvent stillActive = outboxEventRepository
+                .findById(activeId)
+                .orElseThrow();
+
+        // Expired event is available again.
+        assertThat(recoveredEvent.getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+
+        assertThat(recoveredEvent.getClaimedBy()).isNull();
+        assertThat(recoveredEvent.getClaimToken()).isNull();
+        assertThat(recoveredEvent.getLeaseExpiresAt()).isNull();
+
+        // Active event must preserve its ownership.
+        assertThat(stillActive.getStatus())
+                .isEqualTo(OutboxStatus.IN_PROGRESS);
+
+        assertThat(stillActive.getClaimedBy())
+                .isEqualTo(activeWorker);
+
+        assertThat(stillActive.getClaimToken())
+                .isEqualTo(activeClaimToken);
+
+        assertThat(stillActive.getLeaseExpiresAt())
+                .isEqualTo(activeLeaseExpiry);
+    }
+
+    @Test
+    void shouldRecoverExpiredOutboxEventFromMySQL() {
+
+        // Arrange: create an event with an expired claim.
+        OutboxEvent event = new OutboxEvent(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ORDER_EVENTS_V1,
+                "ORDER_CREATED",
+                "{\"eventType\":\"ORDER_CREATED\"}"
+        );
+
+        Instant now = Instant.parse("2026-10-20T12:00:00Z");
+        Instant expiredLease = now.minusSeconds(30);
+
+        event.claim(UUID.randomUUID(), expiredLease);
+
+        UUID originalEventId = event.getEventId();
+
+        UUID outboxId = outboxEventRepository
+                .saveAndFlush(event)
+                .getId();
+
+        entityManager.clear();
+
+        // Act: recover at most ten abandoned events.
+        int recovered = outboxRecoveryService
+                .recoverExpiredBatch(now, 10);
+
+        // Assert: exactly one event was recovered.
+        assertThat(recovered).isEqualTo(1);
+
+        entityManager.clear();
+
+        OutboxEvent reloaded = outboxEventRepository
+                .findById(outboxId)
+                .orElseThrow();
+
+        assertThat(reloaded.getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+
+        assertThat(reloaded.getClaimedBy()).isNull();
+        assertThat(reloaded.getClaimToken()).isNull();
+        assertThat(reloaded.getLeaseExpiresAt()).isNull();
+
+        assertThat(reloaded.getEventId())
+                .isEqualTo(originalEventId);
+
+        assertThat(reloaded.getPublishedAt()).isNull();
+        assertThat(reloaded.getAttemptCount()).isZero();
     }
 
     @Test

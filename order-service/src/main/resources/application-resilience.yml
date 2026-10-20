@@ -1,20 +1,24 @@
+# ======================================================
+# RESILIENCE4J - ORDER SERVICE
+# ======================================================
+
 resilience4j:
   circuitbreaker:
     instances:
       order-kafka:
-        slidingWindowSize: 10
-        failureRateThreshold: 50
-        minimumNumberOfCalls: 5
-        waitDurationInOpenState: 10s
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 10s
 
   retry:
     instances:
       order-kafka:
-        maxAttempts: 3
-        waitDuration: 500ms
+        max-attempts: 3
+        wait-duration: 500ms
 
   bulkhead:
     instances:
       order-kafka:
-        maxConcurrentCalls: 5
-        maxWaitDuration: 0
+        max-concurrent-calls: 5
+        max-wait-duration: 0

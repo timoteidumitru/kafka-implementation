@@ -1,0 +1,25 @@
+# ======================================================
+# INTEGRATION TEST ENVIRONMENT
+# ======================================================
+
+spring:
+  jpa:
+    hibernate:
+      # Matches our disposable Testcontainers database.
+      ddl-auto: create-drop
+    show-sql: false
+
+app:
+  outbox:
+    recovery:
+      # Prevents background tasks from changing test data.
+      enabled: false
+
+eureka:
+  client:
+    enabled: false
+
+management:
+  tracing:
+    sampling:
+      probability: 0.0

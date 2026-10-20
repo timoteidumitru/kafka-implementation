@@ -102,6 +102,38 @@ public class OutboxEvent {
         this.publishedAt = Instant.now();
     }
 
+    public void releaseExpiredClaim(Instant now) {
+
+        if (now == null) {
+            throw new IllegalArgumentException(
+                    "Current time must not be null"
+            );
+        }
+
+        if (this.status != OutboxStatus.IN_PROGRESS) {
+            throw new IllegalStateException(
+                    "Only IN_PROGRESS outbox events can be recovered"
+            );
+        }
+
+        if (this.leaseExpiresAt == null) {
+            throw new IllegalStateException(
+                    "IN_PROGRESS outbox event has no lease expiration"
+            );
+        }
+
+        if (this.leaseExpiresAt.isAfter(now)) {
+            throw new IllegalStateException(
+                    "Cannot recover an outbox event with an active lease"
+            );
+        }
+
+        this.status = OutboxStatus.PENDING;
+        this.claimedBy = null;
+        this.claimToken = null;
+        this.leaseExpiresAt = null;
+    }
+
     public UUID getClaimedBy() {
         return claimedBy;
     }
