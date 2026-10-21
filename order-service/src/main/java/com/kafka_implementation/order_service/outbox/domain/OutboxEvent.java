@@ -12,6 +12,10 @@ import java.util.UUID;
                 @Index(
                         name = "idx_outbox_status_created",
                         columnList = "status, created_at"
+                ),
+                @Index(
+                        name = "idx_outbox_status_lease_id",
+                        columnList = "status, lease_expires_at, id"
                 )
         },
         uniqueConstraints = {

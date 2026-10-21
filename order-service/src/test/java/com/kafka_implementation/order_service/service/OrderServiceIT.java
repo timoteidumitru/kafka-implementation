@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
@@ -39,9 +40,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -114,6 +117,9 @@ class OrderServiceIT {
     @Autowired
     private OutboxRecoveryService outboxRecoveryService;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private Order order;
 
     private OutboxEvent event;
@@ -127,6 +133,54 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldInspectExpiredRecoveryQueryPlan() {
+
+        List<Map<String, Object>> queryPlan =
+                jdbcTemplate.queryForList(
+                        """
+                        EXPLAIN
+                        SELECT *
+                        FROM outbox_event
+                        WHERE status = 'IN_PROGRESS'
+                          AND lease_expires_at <= ?
+                        ORDER BY lease_expires_at, id
+                        LIMIT 100
+                        """,
+                        Timestamp.from(Instant.now())
+                );
+
+        queryPlan.forEach(row ->
+                System.out.println("RECOVERY EXPLAIN: " + row)
+        );
+
+        assertThat(queryPlan).isNotEmpty();
+    }
+
+    @Test
+    void shouldHaveIndexSupportingExpiredOutboxRecovery() {
+
+        List<String> indexedColumns =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT COLUMN_NAME
+                        FROM information_schema.STATISTICS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'outbox_event'
+                          AND INDEX_NAME = 'idx_outbox_status_lease_id'
+                        ORDER BY SEQ_IN_INDEX
+                        """,
+                        String.class
+                );
+
+        assertThat(indexedColumns)
+                .containsExactly(
+                        "status",
+                        "lease_expires_at",
+                        "id"
+                );
     }
 
     @Test
