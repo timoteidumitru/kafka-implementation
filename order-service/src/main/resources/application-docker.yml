@@ -10,11 +10,12 @@ spring:
 
   jpa:
     hibernate:
-      # Temporary compatibility with the current
-      # local Docker setup. Replace with validate after
-      # introducing versioned database migrations.
-      ddl-auto: update
-    show-sql: false
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
 
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}

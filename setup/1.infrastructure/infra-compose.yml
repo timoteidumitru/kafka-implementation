@@ -79,7 +79,8 @@ services:
     networks:
       - kafka-network
     volumes:
-      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -94,3 +95,4 @@ volumes:
   zookeeper-data:
   kafka-logs:
   redis-data:
+  mysql-data:

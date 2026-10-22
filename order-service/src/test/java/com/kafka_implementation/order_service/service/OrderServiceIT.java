@@ -19,6 +19,7 @@ import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,10 +30,11 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
@@ -74,9 +76,6 @@ import static org.mockito.Mockito.*;
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop"
-})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ActiveProfiles("test")
 class OrderServiceIT {
@@ -120,6 +119,12 @@ class OrderServiceIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private Environment environment;
+
+    @Autowired
+    private Flyway flyway;
+
     private Order order;
 
     private OutboxEvent event;
@@ -133,6 +138,82 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldNotReapplyAlreadyExecutedMigration() {
+
+        // Given: Spring Boot already applied V1
+        // during application context startup.
+
+        // When: migration runs again.
+        var result = flyway.migrate();
+
+        // Then: no migration should execute again.
+        assertThat(result.migrationsExecuted)
+                .isZero();
+
+        Integer historyCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flyway_schema_history
+                WHERE version = '1'
+                  AND success = 1
+                """,
+                Integer.class
+        );
+
+        assertThat(historyCount).isEqualTo(1);
+    }
+
+    @Test
+    void shouldUseFlywayForSchemaAndHibernateOnlyForValidation() {
+
+        ConfigurableEnvironment configurableEnvironment =
+                (ConfigurableEnvironment) environment;
+
+        String propertyName = "spring.jpa.hibernate.ddl-auto";
+
+        configurableEnvironment.getPropertySources()
+                .forEach(propertySource -> {
+
+                    Object value = propertySource.getProperty(propertyName);
+
+                    if (value != null) {
+                        System.out.printf(
+                                "DDL SOURCE: %s -> %s%n",
+                                propertySource.getName(),
+                                value
+                        );
+                    }
+                });
+
+        assertThat(environment.getProperty(propertyName))
+                .as("Hibernate must validate the Flyway-managed schema")
+                .isEqualTo("validate");
+    }
+
+    @Test
+    void shouldApplyInitialFlywayMigration() {
+
+        List<Map<String, Object>> migrations =
+                jdbcTemplate.queryForList(
+                        """
+                        SELECT version, description, success
+                        FROM flyway_schema_history
+                        WHERE version = '1'
+                        """
+                );
+
+        assertThat(migrations).hasSize(1);
+
+        Map<String, Object> migration = migrations.get(0);
+
+        assertThat(migration.get("version"))
+                .isEqualTo("1");
+
+        assertThat(migration.get("success"))
+                .isEqualTo(true);
     }
 
     @Test

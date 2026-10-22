@@ -23,6 +23,17 @@
 	<!-- ====================================================== -->
 	<dependencies>
 
+		<!-- Versioned database schema migrations -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-mysql</artifactId>
+		</dependency>
+
 		<!-- Testing: JUnit 5, AssertJ, Mockito, Spring Boot Test -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -48,18 +59,6 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-testcontainers</artifactId>
 			<scope>test</scope>
-		</dependency>
-
-		<!-- Brave Micrometer -->
-		<dependency>
-			<groupId>io.micrometer</groupId>
-			<artifactId>micrometer-tracing-bridge-brave</artifactId>
-		</dependency>
-
-		<!-- Brave Reporter -->
-		<dependency>
-			<groupId>io.zipkin.reporter2</groupId>
-			<artifactId>zipkin-reporter-brave</artifactId>
 		</dependency>
 
 		<!-- Zipkin -->
