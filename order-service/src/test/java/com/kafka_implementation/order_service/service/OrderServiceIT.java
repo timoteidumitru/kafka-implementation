@@ -3,6 +3,7 @@ package com.kafka_implementation.order_service.service;
 import com.kafka_implementation.order_service.config.MySQLTestConfiguration;
 import com.kafka_implementation.order_service.domain.Order;
 import com.kafka_implementation.order_service.domain.OrderStatus;
+import com.kafka_implementation.order_service.domain.ProcessedEvent;
 import com.kafka_implementation.order_service.outbox.domain.OutboxEvent;
 import com.kafka_implementation.order_service.outbox.domain.OutboxStatus;
 import com.kafka_implementation.order_service.outbox.repository.OutboxEventRepository;
@@ -117,6 +118,9 @@ class OrderServiceIT {
     private OutboxRecoveryService outboxRecoveryService;
 
     @Autowired
+    private IdempotencyGuard idempotencyGuard;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -138,6 +142,297 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldAllowEventToBeClaimedAgainAfterRollback() {
+
+        UUID eventId = UUID.randomUUID();
+
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+
+        // ATTEMPT A:
+        // Claim the event, but fail before transaction commit.
+        assertThatThrownBy(() ->
+                transaction.executeWithoutResult(status -> {
+
+                    boolean claimed =
+                            idempotencyGuard.tryClaim(eventId);
+
+                    assertThat(claimed).isTrue();
+
+                    // Simulate a runtime failure during processing.
+                    throw new IllegalStateException(
+                            "Simulated processing failure"
+                    );
+                })
+        )
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Simulated processing failure");
+
+        // The marker must not survive the failed transaction.
+        assertThat(processedEventRepository.existsById(eventId))
+                .isFalse();
+
+        // ATTEMPT B:
+        // Kafka redelivers the exact same event.
+        boolean retryClaimed = transaction.execute(status ->
+                idempotencyGuard.tryClaim(eventId)
+        );
+
+        assertThat(retryClaimed).isTrue();
+
+        // The successful retry must commit the marker.
+        assertThat(processedEventRepository.existsById(eventId))
+                .isTrue();
+
+        assertThat(processedEventRepository.count())
+                .isEqualTo(1);
+
+        // A later duplicate must now be rejected.
+        boolean duplicateClaimed = transaction.execute(status ->
+                idempotencyGuard.tryClaim(eventId)
+        );
+
+        assertThat(duplicateClaimed).isFalse();
+    }
+
+    @Test
+    void shouldAllowOnlyOneConcurrentAtomicClaim()
+            throws Exception {
+
+        UUID eventId = UUID.randomUUID();
+
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Boolean> workerA = executor.submit(() -> {
+
+                TransactionTemplate tx =
+                        new TransactionTemplate(transactionManager);
+
+                return tx.execute(status -> {
+
+                    boolean claimed =
+                            idempotencyGuard.tryClaim(eventId);
+
+                    firstClaimed.countDown();
+
+                    try {
+                        if (!allowFirstCommit.await(
+                                15, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException(
+                                    "Timed out waiting for first commit"
+                            );
+                        }
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(ex);
+                    }
+
+                    return claimed;
+                });
+            });
+
+            // Worker A must have claimed the event.
+            if (!firstClaimed.await(15, TimeUnit.SECONDS)) {
+                workerA.get(1, TimeUnit.SECONDS);
+                throw new AssertionError(
+                        "First worker did not claim the event"
+                );
+            }
+
+            Future<Boolean> workerB = executor.submit(() -> {
+
+                TransactionTemplate tx =
+                        new TransactionTemplate(transactionManager);
+
+                secondStarted.countDown();
+
+                return tx.execute(status ->
+                        idempotencyGuard.tryClaim(eventId)
+                );
+            });
+
+            assertThat(
+                    secondStarted.await(10, TimeUnit.SECONDS)
+            ).isTrue();
+
+            // Permit A to commit, resolving the unique-key conflict.
+            allowFirstCommit.countDown();
+
+            assertThat(workerA.get(20, TimeUnit.SECONDS))
+                    .isTrue();
+
+            assertThat(workerB.get(20, TimeUnit.SECONDS))
+                    .isFalse();
+
+            assertThat(processedEventRepository.existsById(eventId))
+                    .isTrue();
+
+            assertThat(processedEventRepository.count())
+                    .isEqualTo(1);
+
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldAtomicallyClaimIncomingEventOnlyOnce() {
+
+        UUID eventId = UUID.randomUUID();
+
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+
+        // First transaction: new event.
+        boolean firstClaim = transaction.execute(
+                status -> idempotencyGuard.tryClaim(eventId)
+        );
+
+        // Second transaction: same event.
+        boolean secondClaim = transaction.execute(
+                status -> idempotencyGuard.tryClaim(eventId)
+        );
+
+        assertThat(firstClaim).isTrue();
+        assertThat(secondClaim).isFalse();
+
+        // Exactly one durable marker.
+        assertThat(processedEventRepository.existsById(eventId))
+                .isTrue();
+
+        assertThat(processedEventRepository.count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void shouldEnforceUniqueProcessedEventIdAcrossTransactions()
+            throws Exception {
+
+        UUID eventId = UUID.randomUUID();
+
+        CountDownLatch firstInserted = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Boolean> workerA = executor.submit(() -> {
+
+                TransactionTemplate tx =
+                        new TransactionTemplate(transactionManager);
+
+                return tx.execute(status -> {
+
+                    // Use Hibernate's existing UUID mapping.
+                    processedEventRepository.saveAndFlush(
+                            new ProcessedEvent(eventId, Instant.now())
+                    );
+
+                    // The INSERT has reached MySQL,
+                    // but the transaction is still open.
+                    firstInserted.countDown();
+
+                    try {
+                        if (!allowFirstCommit.await(
+                                15, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException(
+                                    "First transaction release timed out"
+                            );
+                        }
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(ex);
+                    }
+
+                    return true;
+                });
+            });
+
+            // Confirm the first INSERT actually happened.
+            boolean inserted = firstInserted.await(
+                    15, TimeUnit.SECONDS
+            );
+
+            if (!inserted) {
+                // Surface the underlying worker exception
+                // instead of reporting only a latch timeout.
+                workerA.get(1, TimeUnit.SECONDS);
+
+                throw new AssertionError(
+                        "First worker did not reach the INSERT checkpoint"
+                );
+            }
+
+            Future<Boolean> workerB = executor.submit(() -> {
+
+                TransactionTemplate tx =
+                        new TransactionTemplate(transactionManager);
+
+                secondStarted.countDown();
+
+                try {
+                    tx.executeWithoutResult(status -> {
+
+                        processedEventRepository.saveAndFlush(
+                                new ProcessedEvent(
+                                        eventId,
+                                        Instant.now()
+                                )
+                        );
+                    });
+
+                    return true;
+
+                } catch (
+                        org.springframework.dao.DataIntegrityViolationException ex
+                ) {
+                    // The primary-key constraint rejected
+                    // the competing INSERT.
+                    return false;
+                }
+            });
+
+            assertThat(
+                    secondStarted.await(10, TimeUnit.SECONDS)
+            ).isTrue();
+
+            // Release the first transaction so MySQL
+            // can resolve the duplicate-key conflict.
+            allowFirstCommit.countDown();
+
+            boolean resultA = workerA.get(
+                    20, TimeUnit.SECONDS
+            );
+
+            boolean resultB = workerB.get(
+                    20, TimeUnit.SECONDS
+            );
+
+            assertThat(resultA).isTrue();
+            assertThat(resultB).isFalse();
+
+            // Only one committed marker must remain.
+            assertThat(processedEventRepository.existsById(eventId))
+                    .isTrue();
+
+            assertThat(processedEventRepository.count())
+                    .isEqualTo(1);
+
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -2157,6 +2452,45 @@ class OrderServiceIT {
 
         assertThat(events)
                 .noneMatch(event -> "ORDER_FAILED".equals(event.getEventType()));
+
+        // RECOVERY: The temporary outbox failure disappears.
+        // Restore the real writer's behaviour on the spy.
+        doCallRealMethod().when(outboxWriter).store(
+                any(UUID.class),
+                anyString(),
+                any()
+        );
+
+        // Kafka redelivers the SAME event ID.
+        boolean retried = orderEventProcessor
+                .processPaymentFailure(incomingEvent);
+
+        assertThat(retried).isTrue();
+
+        // The Order has now been cancelled.
+        Order recoveredOrder = orderRepository
+                .findById(orderId)
+                .orElseThrow();
+
+        assertThat(recoveredOrder.getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        // The event marker was committed on the retry.
+        assertThat(processedEventRepository.existsById(
+                incomingEvent.metadata().eventId()
+        )).isTrue();
+
+        // The original creation event plus exactly one failure event.
+        List<OutboxEvent> recoveredEvents =
+                outboxEventRepository.findByAggregateId(orderId);
+
+        assertThat(recoveredEvents).hasSize(2);
+
+        assertThat(recoveredEvents.stream()
+                .filter(e -> "ORDER_FAILED".equals(e.getEventType()))
+                .count()
+        ).isEqualTo(1);
+
     }
 
     @Test

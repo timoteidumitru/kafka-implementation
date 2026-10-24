@@ -32,26 +32,28 @@ public class OrderEventProcessor {
     }
 
     @Transactional
-    public boolean processInventoryReserved(InventoryReservedEvent event) {
-
+    public boolean processInventoryReserved(
+            InventoryReservedEvent event
+    ) {
         UUID incomingEventId = event.metadata().eventId();
         UUID orderId = event.orderId();
 
-        // 1. Deduplicate the incoming Kafka event.
-        if (idempotencyGuard.alreadyProcessed(incomingEventId)) {
+        // 1. Claim this incoming Kafka event once.
+        if (!idempotencyGuard.tryClaim(incomingEventId)) {
             return false;
         }
 
-        // 2. Transition the Order to COMPLETED.
+        // 2. Update the Order.
         orderService.complete(orderId);
 
         // 3. Construct the outgoing domain event.
-        OrderCompletedEvent outgoingEvent = new OrderCompletedEvent(
-                next(event.metadata(), "order-service", 1),
-                orderId
-        );
+        OrderCompletedEvent outgoingEvent =
+                new OrderCompletedEvent(
+                        next(event.metadata(), "order-service", 1),
+                        orderId
+                );
 
-        // 4. Persist the outgoing event in the same MySQL transaction.
+        // 4. Persist the outgoing event in the same transaction.
         outboxWriter.store(
                 outgoingEvent.metadata().eventId(),
                 ORDER_EVENTS_V1,
@@ -68,7 +70,7 @@ public class OrderEventProcessor {
         UUID incomingEventId = event.metadata().eventId();
         UUID orderId = event.orderId();
 
-        if (idempotencyGuard.alreadyProcessed(incomingEventId)) {
+        if (!idempotencyGuard.tryClaim(incomingEventId)) {
             return false;
         }
 
@@ -96,7 +98,7 @@ public class OrderEventProcessor {
         UUID orderId = event.orderId();
 
         // 1. Claim the incoming event inside this transaction.
-        if (idempotencyGuard.alreadyProcessed(incomingEventId)) {
+        if (!idempotencyGuard.tryClaim(incomingEventId)) {
             return false;
         }
 
@@ -122,7 +124,7 @@ public class OrderEventProcessor {
 
     @Transactional
     public boolean processCancellation(UUID eventId, UUID orderId) {
-        if (idempotencyGuard.alreadyProcessed(eventId)) {
+        if (!idempotencyGuard.tryClaim(eventId)) {
             return false;
         }
 
@@ -132,7 +134,7 @@ public class OrderEventProcessor {
 
     @Transactional
     public boolean processCompletion(UUID eventId, UUID orderId) {
-        if (idempotencyGuard.alreadyProcessed(eventId)) {
+        if (!idempotencyGuard.tryClaim(eventId)) {
             return false;
         }
 
