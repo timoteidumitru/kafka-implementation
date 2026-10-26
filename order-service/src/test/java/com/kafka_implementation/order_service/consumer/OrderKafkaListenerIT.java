@@ -1,6 +1,7 @@
 package com.kafka_implementation.order_service.consumer;
 
 import com.kafka_implementation.order_service.config.KafkaConsumerConfig;
+import com.kafka_implementation.order_service.config.KafkaProducerConfig;
 import com.kafka_implementation.order_service.service.OrderEventProcessor;
 import com.kafka_implementation.shared_events.base.DomainEvent;
 import com.kafka_implementation.shared_events.base.EventMetadata;
@@ -8,10 +9,15 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservationFail
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.apache.kafka.common.header.internals.RecordHeaders;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
-import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -39,6 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Container;
 
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -85,6 +92,7 @@ class OrderKafkaListenerIT {
     }
 
     @Autowired
+    @Qualifier("orderKafkaTemplate")
     private KafkaTemplate<String, DomainEvent> kafkaTemplate;
 
     @Autowired
@@ -235,17 +243,40 @@ class OrderKafkaListenerIT {
                 );
 
         // Both records use the same topic and partition key.
-        kafkaTemplate.send(
-                INVENTORY_EVENTS_V1,
-                orderId.toString(),
-                reserved
-        ).get(15, TimeUnit.SECONDS);
+        Map<String, Object> producerConfig = Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                kafka.getBootstrapServers(),
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                JsonSerializer.class
+        );
 
-        kafkaTemplate.send(
-                INVENTORY_EVENTS_V1,
-                orderId.toString(),
-                failed
-        ).get(15, TimeUnit.SECONDS);
+        try (KafkaProducer<String, DomainEvent> producer =
+                     new KafkaProducer<>(producerConfig)) {
+
+            producer.send(new ProducerRecord<>(
+                    INVENTORY_EVENTS_V1,
+                    orderId.toString(),
+                    reserved
+            )).get(15, TimeUnit.SECONDS);
+
+            producer.send(new ProducerRecord<>(
+                    INVENTORY_EVENTS_V1,
+                    orderId.toString(),
+                    failed
+            )).get(15, TimeUnit.SECONDS);
+        }
+
+        // Verify the actual Kafka listener invokes both handlers.
+        verify(processor, timeout(20000))
+                .processInventoryReserved(reserved);
+
+        verify(processor, timeout(20000))
+                .processInventoryFailure(failed);
+
+        verifyNoMoreInteractions(processor);
+
 
         // The actual Kafka listener must invoke both handlers.
         verify(processor, timeout(20000))
@@ -266,6 +297,7 @@ class OrderKafkaListenerIT {
     @EnableKafka
     @Import({
             KafkaConsumerConfig.class,
+            KafkaProducerConfig.class,
             OrderEventListener.class
     })
     static class TestApplication {

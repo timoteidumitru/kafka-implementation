@@ -19,6 +19,7 @@ import org.springframework.util.backoff.FixedBackOff;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.boot.ssl.SslBundles;
 import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -82,12 +83,23 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public DefaultErrorHandler errorHandler(KafkaTemplate<String, DomainEvent> template) {
+    public DefaultErrorHandler errorHandler(
+            @Qualifier("dltKafkaTemplate")
+            KafkaTemplate<String, Object> template
+    ) {
         DeadLetterPublishingRecoverer recoverer =
                 new DeadLetterPublishingRecoverer(
                         template,
-                        (record, ex) -> new TopicPartition(record.topic() + ".DLT", record.partition())
+                        (record, ex) -> new TopicPartition(
+                                record.topic() + ".DLT",
+                                record.partition()
+                        )
                 );
-        return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3));
+
+        return new DefaultErrorHandler(
+                recoverer,
+                new FixedBackOff(1000L, 3L)
+        );
     }
+
 }
