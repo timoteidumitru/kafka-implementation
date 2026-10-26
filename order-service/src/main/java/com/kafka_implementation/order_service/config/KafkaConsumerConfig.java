@@ -1,9 +1,9 @@
 package com.kafka_implementation.order_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kafka_implementation.shared_events.base.DomainEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
-import com.kafka_implementation.shared_events.base.DomainEvent;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +16,9 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.util.backoff.FixedBackOff;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
+import org.springframework.boot.ssl.SslBundles;
+import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,19 +26,28 @@ import java.util.Map;
 @Configuration
 public class KafkaConsumerConfig {
 
-    private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
-
     @Bean
-    public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
-        JsonDeserializer<Object> jsonDeserializer = new JsonDeserializer<>(objectMapper);
-        jsonDeserializer.addTrustedPackages("*");
-        ErrorHandlingDeserializer<Object> valueDeserializer = new ErrorHandlingDeserializer<>(jsonDeserializer);
+    public ConsumerFactory<String, Object> consumerFactory(
+            ObjectMapper objectMapper,
+            KafkaProperties kafkaProperties,
+            SslBundles sslBundles
+    ) {
 
-        Map<String, Object> props = new HashMap<>();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, System.getenv().getOrDefault("SPRING_KAFKA_BOOTSTRAP_SERVERS", DEFAULT_BOOTSTRAP_SERVERS));
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "order-service-group");
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        JsonDeserializer<Object> jsonDeserializer =
+                new JsonDeserializer<>(objectMapper);
+
+        ErrorHandlingDeserializer<Object> valueDeserializer =
+                new ErrorHandlingDeserializer<>(jsonDeserializer);
+
+        Map<String, Object> props =
+                new HashMap<>(
+                        kafkaProperties.buildConsumerProperties(sslBundles)
+                );
+
+        props.put(
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
+                false
+        );
 
         return new DefaultKafkaConsumerFactory<>(
                 props,
@@ -45,16 +57,27 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public ConcurrentKafkaListenerContainerFactory<String, Object>
+    kafkaListenerContainerFactory(
             ConsumerFactory<String, Object> consumerFactory,
+            ConcurrentKafkaListenerContainerFactoryConfigurer configurer,
             DefaultErrorHandler errorHandler
     ) {
+
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(consumerFactory);
+
+        // Apply Spring Boot's Kafka listener configuration.
+        // Includes concurrency, poll timeout and ack mode.
+        configurer.configure(
+                (ConcurrentKafkaListenerContainerFactory) factory,
+                (ConsumerFactory) consumerFactory
+        );
+
+        // Preserve the application-specific retry and DLT handler.
         factory.setCommonErrorHandler(errorHandler);
-        factory.setConcurrency(3);
-        factory.getContainerProperties().setPollTimeout(3000);
+
         return factory;
     }
 

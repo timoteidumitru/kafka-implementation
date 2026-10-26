@@ -1,12 +1,15 @@
 package com.kafka_implementation.order_service.consumer;
 
 import com.kafka_implementation.order_service.service.OrderEventProcessor;
+import com.kafka_implementation.shared_events.base.DomainEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
 import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 import static com.kafka_implementation.shared_events.topics.Topics.*;
 
@@ -33,7 +36,8 @@ public class OrderEventListener {
         try {
             orderEventProcessor.processPaymentFailure(event);
         } finally {
-            MDC.clear();
+            MDC.remove("eventId");
+            MDC.remove("orderId");
         }
     }
 
@@ -41,33 +45,33 @@ public class OrderEventListener {
             topics = INVENTORY_EVENTS_V1,
             groupId = "order-service"
     )
-    public void onInventoryFailed(
-            InventoryReservationFailedEvent event
-    ) {
-        MDC.put("eventId", event.metadata().eventId().toString());
-        MDC.put("orderId", event.orderId().toString());
+    public void onInventoryEvent(DomainEvent event) {
 
-        try {
-            orderEventProcessor.processInventoryFailure(event);
-        } finally {
-            MDC.clear();
-        }
-    }
-
-    @KafkaListener(
-            topics = INVENTORY_EVENTS_V1,
-            groupId = "order-service"
-    )
-    public void onInventoryReserved(InventoryReservedEvent event) {
+        Objects.requireNonNull(event, "event must not be null");
 
         MDC.put("eventId", event.metadata().eventId().toString());
-        MDC.put("orderId", event.orderId().toString());
+        MDC.put("orderId", event.getAggregateId().toString());
 
         try {
-            orderEventProcessor.processInventoryReserved(event);
+
+            if (event instanceof InventoryReservedEvent reserved) {
+                orderEventProcessor.processInventoryReserved(reserved);
+                return;
+            }
+
+            if (event instanceof InventoryReservationFailedEvent failed) {
+                orderEventProcessor.processInventoryFailure(failed);
+                return;
+            }
+
+            throw new IllegalArgumentException(
+                    "Unsupported inventory event type: "
+                            + event.getClass().getName()
+            );
+
         } finally {
-            MDC.clear();
+            MDC.remove("eventId");
+            MDC.remove("orderId");
         }
     }
-
 }

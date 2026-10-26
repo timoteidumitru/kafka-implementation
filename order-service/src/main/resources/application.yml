@@ -46,8 +46,7 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        # TODO: Restrict after reviewing actual event packages.
-        spring.json.trusted.packages: "*"
+        "[spring.json.trusted.packages]": "com.kafka_implementation.shared_events.inventory,com.kafka_implementation.shared_events.payment"
 
     # Observation is configured on the KafkaTemplate
     # and listener container, not producer/consumer.
@@ -55,6 +54,9 @@ spring:
       observation-enabled: true
 
     listener:
+      concurrency: 3
+      poll-timeout: 3s
+      ack-mode: batch
       observation-enabled: true
 
 # ======================================================
