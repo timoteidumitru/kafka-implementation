@@ -14,6 +14,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -92,6 +93,200 @@ class OrderKafkaDltIT {
 
     @Autowired
     private ObjectMapper mapper;
+
+    @Test
+    void shouldRejectUntrustedTypeHeaderAndPreservePayloadInDlt()
+            throws Exception {
+
+        // ARRANGE: Valid JSON, deliberately untrusted root type.
+        String key = UUID.randomUUID().toString();
+
+        byte[] originalPayload = """
+            {
+              "eventId": "11111111-1111-1111-1111-111111111111",
+              "correlationId": "22222222-2222-2222-2222-222222222222",
+              "sourceService": "security-test",
+              "version": 1
+            }
+            """.getBytes(StandardCharsets.UTF_8);
+
+        String rejectedType =
+                "com.kafka_implementation.shared_events.base.EventMetadata";
+
+        Map<String, Object> producerConfig = Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                kafka.getBootstrapServers(),
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                ByteArraySerializer.class
+        );
+
+        Map<String, Object> inspectorConfig = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                kafka.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG,
+                "untrusted-type-inspector-" + UUID.randomUUID(),
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
+                false,
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                "earliest",
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                ByteArrayDeserializer.class
+        );
+
+        TopicPartition dltPartition =
+                new TopicPartition(DLT_TOPIC, 0);
+
+        try (
+                KafkaProducer<String, byte[]> producer =
+                        new KafkaProducer<>(producerConfig);
+
+                KafkaConsumer<String, byte[]> inspector =
+                        new KafkaConsumer<>(inspectorConfig)
+        ) {
+
+            inspector.assign(List.of(dltPartition));
+            inspector.seekToBeginning(List.of(dltPartition));
+
+            ProducerRecord<String, byte[]> original =
+                    new ProducerRecord<>(
+                            INVENTORY_EVENTS_V1,
+                            0,
+                            key,
+                            originalPayload
+                    );
+
+            // This header determines which Java type
+            // Spring Kafka attempts to deserialize.
+            original.headers().add(new RecordHeader(
+                    "__TypeId__",
+                    rejectedType.getBytes(StandardCharsets.UTF_8)
+            ));
+
+            RecordMetadata originalMetadata = producer.send(original)
+                    .get(15, TimeUnit.SECONDS);
+
+            // ACT: Wait for the actual listener's error handler
+            // to publish the rejected record to the DLT.
+            ConsumerRecord<String, byte[]> recovered = null;
+
+            long deadline = System.nanoTime()
+                    + Duration.ofSeconds(30).toNanos();
+
+            while (System.nanoTime() < deadline && recovered == null) {
+
+                ConsumerRecords<String, byte[]> records =
+                        inspector.poll(Duration.ofMillis(500));
+
+                for (ConsumerRecord<String, byte[]> record : records) {
+                    if (key.equals(record.key())) {
+                        recovered = record;
+                        break;
+                    }
+                }
+            }
+
+            // ASSERT 1: Record reached the DLT.
+            assertThat(recovered)
+                    .as("Untrusted root type must reach the DLT")
+                    .isNotNull();
+
+            // ASSERT 2: Original bytes were preserved exactly.
+            assertThat(recovered.value())
+                    .as("DLT must preserve the original payload")
+                    .containsExactly(originalPayload);
+
+            assertThat(recovered.key())
+                    .isEqualTo(key);
+
+            // ASSERT 3: DLT metadata matches the source record.
+            var originalTopicHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_ORIGINAL_TOPIC
+            );
+
+            var originalPartitionHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_ORIGINAL_PARTITION
+            );
+
+            var originalOffsetHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_ORIGINAL_OFFSET
+            );
+
+            assertThat(originalTopicHeader).isNotNull();
+            assertThat(originalPartitionHeader).isNotNull();
+            assertThat(originalOffsetHeader).isNotNull();
+
+            assertThat(new String(
+                    originalTopicHeader.value(),
+                    StandardCharsets.UTF_8
+            )).isEqualTo(INVENTORY_EVENTS_V1);
+
+            assertThat(java.nio.ByteBuffer
+                    .wrap(originalPartitionHeader.value())
+                    .getInt())
+                    .isEqualTo(originalMetadata.partition());
+
+            assertThat(java.nio.ByteBuffer
+                    .wrap(originalOffsetHeader.value())
+                    .getLong())
+                    .isEqualTo(originalMetadata.offset());
+
+            // ASSERT 4: Explicitly prove the cause was
+            // the trusted-package restriction.
+            var exceptionMessageHeader =
+                    recovered.headers().lastHeader(
+                            KafkaHeaders.DLT_EXCEPTION_MESSAGE
+                    );
+
+            assertThat(exceptionMessageHeader)
+                    .as("DLT should include the rejection reason")
+                    .isNotNull();
+
+            String exceptionMessage = new String(
+                    exceptionMessageHeader.value(),
+                    StandardCharsets.UTF_8
+            );
+
+            assertThat(exceptionMessage)
+                    .as("DLT exception message")
+                    .isNotBlank();
+
+            // Inspect the complete exception chain, including nested causes.
+            var stackTraceHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_EXCEPTION_STACKTRACE
+            );
+
+            assertThat(stackTraceHeader)
+                    .as("DLT must contain the exception stack trace")
+                    .isNotNull();
+
+            String exceptionStackTrace = new String(
+                    stackTraceHeader.value(),
+                    StandardCharsets.UTF_8
+            );
+
+            assertThat(exceptionStackTrace)
+                    .as("The actual cause must be trusted-package rejection")
+                    .contains("not in the trusted packages");
+
+            var typeHeader = recovered.headers().lastHeader("__TypeId__");
+
+            assertThat(typeHeader)
+                    .as("Original type header must be preserved in the DLT")
+                    .isNotNull();
+
+            assertThat(new String(
+                    typeHeader.value(),
+                    StandardCharsets.UTF_8
+            )).isEqualTo(rejectedType);
+
+            // ASSERT 5: Business processing must never run.
+            verifyNoInteractions(processor);
+        }
+    }
 
     @Test
     void shouldRetryBusinessFailureThenPublishEventToDlt()
