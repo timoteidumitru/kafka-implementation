@@ -64,7 +64,7 @@ public class OrderEventListener {
                 return;
             }
 
-            throw new IllegalArgumentException(
+            throw new UnsupportedInventoryEventException(
                     "Unsupported inventory event type: "
                             + event.getClass().getName()
             );

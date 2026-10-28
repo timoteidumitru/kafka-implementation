@@ -1,7 +1,7 @@
 package com.kafka_implementation.order_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kafka_implementation.shared_events.base.DomainEvent;
+import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -96,10 +96,19 @@ public class KafkaConsumerConfig {
                         )
                 );
 
-        return new DefaultErrorHandler(
+        DefaultErrorHandler handler = new DefaultErrorHandler(
                 recoverer,
                 new FixedBackOff(1000L, 3L)
         );
+
+        // Unsupported event types cannot become valid through retrying.
+        // Preserve Spring Kafka's existing default fatal classifications.
+        handler.addNotRetryableExceptions(
+                UnsupportedInventoryEventException.class
+        );
+
+        return handler;
+
     }
 
 }

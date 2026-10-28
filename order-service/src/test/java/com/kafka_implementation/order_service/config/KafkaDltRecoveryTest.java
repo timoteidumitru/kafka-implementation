@@ -1,5 +1,6 @@
 package com.kafka_implementation.order_service.config;
 
+import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -20,6 +21,167 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class KafkaDltRecoveryTest {
+
+    @Test
+    void shouldSendUnsupportedInventoryEventToDltWithoutRetries() {
+
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, Object> dltTemplate =
+                mock(KafkaTemplate.class);
+
+        @SuppressWarnings("unchecked")
+        SendResult<String, Object> sendResult =
+                mock(SendResult.class);
+
+        when(dltTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(sendResult)
+                );
+
+        DefaultErrorHandler handler =
+                new KafkaConsumerConfig().errorHandler(dltTemplate);
+
+        ConsumerRecord<String, Object> record =
+                new ConsumerRecord<>(
+                        "inventory.events.v1",
+                        0,
+                        42L,
+                        "order-42",
+                        "unsupported-event"
+                );
+
+        @SuppressWarnings("unchecked")
+        Consumer<String, Object> consumer =
+                mock(Consumer.class);
+
+        MessageListenerContainer container =
+                mock(MessageListenerContainer.class);
+
+        when(consumer.partitionsFor(
+                eq("inventory.events.v1.DLT"),
+                any(Duration.class)
+        )).thenReturn(List.of(
+                new PartitionInfo(
+                        "inventory.events.v1.DLT",
+                        0,
+                        null,
+                        null,
+                        null
+                )
+        ));
+
+        RuntimeException failure =
+                new UnsupportedInventoryEventException(
+                        "Unsupported inventory event type"
+                );
+
+        // A permanent failure should immediately enter recovery.
+        boolean recovered = handler.handleOne(
+                failure,
+                record,
+                consumer,
+                container
+        );
+
+        assertThat(recovered)
+                .as("Unsupported event should recover without retries")
+                .isTrue();
+
+        verify(dltTemplate, times(1))
+                .send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void shouldRetryOrdinaryIllegalArgumentExceptionBeforeDlt() {
+
+        // ARRANGE: mock a successful DLT publication.
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, Object> dltTemplate =
+                mock(KafkaTemplate.class);
+
+        @SuppressWarnings("unchecked")
+        SendResult<String, Object> sendResult =
+                mock(SendResult.class);
+
+        when(dltTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(sendResult)
+                );
+
+        // Use the actual production error-handler configuration.
+        DefaultErrorHandler handler =
+                new KafkaConsumerConfig().errorHandler(dltTemplate);
+
+        ConsumerRecord<String, Object> record =
+                new ConsumerRecord<>(
+                        "inventory.events.v1",
+                        0,
+                        42L,
+                        "order-42",
+                        "unsupported-event"
+                );
+
+        @SuppressWarnings("unchecked")
+        Consumer<String, Object> consumer =
+                mock(Consumer.class);
+
+        MessageListenerContainer container =
+                mock(MessageListenerContainer.class);
+
+        when(consumer.partitionsFor(
+                eq("inventory.events.v1.DLT"),
+                any(Duration.class)
+        )).thenReturn(List.of(
+                new PartitionInfo(
+                        "inventory.events.v1.DLT",
+                        0,
+                        null,
+                        null,
+                        null
+                )
+        ));
+
+        // Simulate the exception currently thrown
+        // by OrderEventListener for an unsupported event.
+        IllegalArgumentException unsupportedEvent =
+                new IllegalArgumentException(
+                        "Unsupported inventory event type"
+                );
+
+        // ACT + ASSERT: the first three failures remain retryable.
+        for (int attempt = 1; attempt <= 3; attempt++) {
+
+            boolean recovered = handler.handleOne(
+                    unsupportedEvent,
+                    record,
+                    consumer,
+                    container
+            );
+
+            assertThat(recovered)
+                    .as("Attempt %s should remain unrecovered", attempt)
+                    .isFalse();
+        }
+
+        // No DLT publication should have occurred yet.
+        verify(dltTemplate, never())
+                .send(any(ProducerRecord.class));
+
+        // Fourth failure: the retry budget is exhausted.
+        boolean recovered = handler.handleOne(
+                unsupportedEvent,
+                record,
+                consumer,
+                container
+        );
+
+        assertThat(recovered)
+                .as("Fourth failure should trigger DLT recovery")
+                .isTrue();
+
+        verify(dltTemplate, times(1))
+                .send(any(ProducerRecord.class));
+    }
 
     @Test
     void shouldRetryRecoveryAfterDltPublicationFailsThenSucceeds() {

@@ -1,6 +1,7 @@
 package com.kafka_implementation.order_service.consumer;
 
 import com.kafka_implementation.order_service.service.OrderEventProcessor;
+import com.kafka_implementation.shared_events.base.DomainEvent;
 import com.kafka_implementation.shared_events.base.EventMetadata;
 import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
@@ -24,6 +25,33 @@ class OrderEventRoutingTest {
     void setUp() {
         processor = mock(OrderEventProcessor.class);
         listener = new OrderEventListener(processor);
+    }
+
+    @Test
+    void shouldRejectUnsupportedInventoryEventWithoutProcessing() {
+
+        // ARRANGE: A valid DomainEvent that is not one of
+        // the inventory event types supported by this listener.
+        DomainEvent unsupportedEvent = mock(DomainEvent.class);
+
+        EventMetadata metadata =
+                EventMetadata.create("inventory-service", 1);
+
+        UUID orderId = UUID.randomUUID();
+
+        when(unsupportedEvent.metadata()).thenReturn(metadata);
+        when(unsupportedEvent.getAggregateId()).thenReturn(orderId);
+
+        // ACT + ASSERT: The listener must throw the dedicated
+        // exception that KafkaConsumerConfig treats as non-retryable.
+        assertThatThrownBy(
+                () -> listener.onInventoryEvent(unsupportedEvent)
+        )
+                .isInstanceOf(UnsupportedInventoryEventException.class)
+                .hasMessageContaining("Unsupported inventory event type");
+
+        // An unsupported event must never trigger business processing.
+        verifyNoInteractions(processor);
     }
 
     @Test
