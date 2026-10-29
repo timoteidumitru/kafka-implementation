@@ -52,18 +52,18 @@ public class OrderService {
     }
 
     @Transactional
-    public void cancel(UUID orderId) {
+    public boolean cancel(UUID orderId) {
         Order order = repository.findById(orderId)
                 .orElseThrow();
 
-        order.markCancelled();
+        return order.markCancelled();
     }
 
     @Transactional
-    public void complete(UUID orderId) {
+    public boolean complete(UUID orderId) {
         Order order = repository.findById(orderId)
                 .orElseThrow();
 
-        order.markCompleted();
+        return order.markCompleted();
     }
 }

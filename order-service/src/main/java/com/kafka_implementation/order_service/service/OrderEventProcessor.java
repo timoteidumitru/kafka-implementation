@@ -32,28 +32,26 @@ public class OrderEventProcessor {
     }
 
     @Transactional
-    public boolean processInventoryReserved(
-            InventoryReservedEvent event
-    ) {
+    public boolean processInventoryReserved(InventoryReservedEvent event) {
+
         UUID incomingEventId = event.metadata().eventId();
         UUID orderId = event.orderId();
 
-        // 1. Claim this incoming Kafka event once.
         if (!idempotencyGuard.tryClaim(incomingEventId)) {
             return false;
         }
 
-        // 2. Update the Order.
-        orderService.complete(orderId);
+        boolean transitioned = orderService.complete(orderId);
 
-        // 3. Construct the outgoing domain event.
-        OrderCompletedEvent outgoingEvent =
-                new OrderCompletedEvent(
-                        next(event.metadata(), "order-service", 1),
-                        orderId
-                );
+        if (!transitioned) {
+            return true;
+        }
 
-        // 4. Persist the outgoing event in the same transaction.
+        OrderCompletedEvent outgoingEvent = new OrderCompletedEvent(
+                next(event.metadata(), "order-service", 1),
+                orderId
+        );
+
         outboxWriter.store(
                 outgoingEvent.metadata().eventId(),
                 ORDER_EVENTS_V1,
@@ -64,9 +62,7 @@ public class OrderEventProcessor {
     }
 
     @Transactional
-    public boolean processInventoryFailure(
-            InventoryReservationFailedEvent event
-    ) {
+    public boolean processInventoryFailure(InventoryReservationFailedEvent event) {
         UUID incomingEventId = event.metadata().eventId();
         UUID orderId = event.orderId();
 
@@ -74,7 +70,11 @@ public class OrderEventProcessor {
             return false;
         }
 
-        orderService.cancel(orderId);
+        boolean transitioned = orderService.cancel(orderId);
+
+        if (!transitioned) {
+            return true;
+        }
 
         OrderFailedEvent outgoingEvent = new OrderFailedEvent(
                 next(event.metadata(), "order-service", 1),
@@ -97,22 +97,22 @@ public class OrderEventProcessor {
         UUID incomingEventId = event.metadata().eventId();
         UUID orderId = event.orderId();
 
-        // 1. Claim the incoming event inside this transaction.
         if (!idempotencyGuard.tryClaim(incomingEventId)) {
             return false;
         }
 
-        // 2. Update the Order.
-        orderService.cancel(orderId);
+        boolean transitioned = orderService.cancel(orderId);
 
-        // 3. Construct the outgoing domain event.
+        if (!transitioned) {
+            return true;
+        }
+
         OrderFailedEvent outgoingEvent = new OrderFailedEvent(
                 next(event.metadata(), "order-service", 1),
                 orderId,
                 event.reason()
         );
 
-        // 4. Persist the outgoing event in MySQL, not Kafka.
         outboxWriter.store(
                 outgoingEvent.metadata().eventId(),
                 ORDER_EVENTS_V1,

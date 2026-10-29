@@ -18,8 +18,6 @@ import com.kafka_implementation.shared_events.inventory.InventoryReservationFail
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +39,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.TransactionDefinition;
+import jakarta.persistence.OptimisticLockException;
 
+import java.util.function.Consumer;
+import java.util.concurrent.*;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -142,6 +147,325 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldAllowOnlyOneConcurrentTerminalTransitionToCommit()
+            throws Exception {
+
+        // ARRANGE: Create and commit the Order before
+        // starting either concurrent transaction.
+        Order created = orderService.create(order);
+        UUID orderId = created.getId();
+
+        CountDownLatch bothReady = new CountDownLatch(2);
+        CountDownLatch releaseCommits = new CountDownLatch(1);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Throwable> completion = executor.submit(() ->
+                    attemptTransition(
+                            orderId,
+                            Order::markCompleted,
+                            bothReady,
+                            releaseCommits
+                    )
+            );
+
+            Future<Throwable> cancellation = executor.submit(() ->
+                    attemptTransition(
+                            orderId,
+                            Order::markCancelled,
+                            bothReady,
+                            releaseCommits
+                    )
+            );
+
+            // Ensure BOTH transactions have loaded the
+            // original Order and changed their own copy.
+            assertThat(bothReady.await(15, TimeUnit.SECONDS))
+                    .as("Both transactions must reach the barrier")
+                    .isTrue();
+
+            // Now allow both transactions to finish.
+            releaseCommits.countDown();
+
+            Throwable completionError =
+                    completion.get(30, TimeUnit.SECONDS);
+
+            Throwable cancellationError =
+                    cancellation.get(30, TimeUnit.SECONDS);
+
+            // Exactly one transaction should succeed.
+            long successfulTransactions =
+                    (completionError == null ? 1 : 0)
+                            + (cancellationError == null ? 1 : 0);
+
+            assertThat(successfulTransactions).isEqualTo(1);
+
+            // The other transaction must fail because
+            // it attempted to update a stale Order version.
+            Throwable losingError = completionError != null
+                    ? completionError
+                    : cancellationError;
+
+            assertThat(isOptimisticConflict(losingError))
+                    .as("Losing transaction should fail optimistic locking")
+                    .isTrue();
+
+            // ASSERT: Read persisted state from a new
+            // repository operation after both transactions.
+            Order persisted = orderRepository.findById(orderId)
+                    .orElseThrow();
+
+            assertThat(persisted.getStatus())
+                    .isIn(OrderStatus.COMPLETED, OrderStatus.CANCELLED);
+
+            // The final state must match the winning transaction.
+            if (completionError == null) {
+                assertThat(persisted.getStatus())
+                        .isEqualTo(OrderStatus.COMPLETED);
+            } else {
+                assertThat(persisted.getStatus())
+                        .isEqualTo(OrderStatus.CANCELLED);
+            }
+
+        } finally {
+            // Prevent a stuck barrier if an assertion fails.
+            releaseCommits.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(35, TimeUnit.SECONDS))
+                    .isTrue();
+        }
+    }
+
+    private Throwable attemptTransition(
+            UUID orderId,
+            Consumer<Order> transition,
+            CountDownLatch bothReady,
+            CountDownLatch releaseCommits
+    ) {
+        try {
+            TransactionTemplate template =
+                    new TransactionTemplate(transactionManager);
+
+            template.setPropagationBehavior(
+                    TransactionDefinition.PROPAGATION_REQUIRES_NEW
+            );
+
+            template.executeWithoutResult(status -> {
+
+                Order loaded = orderRepository.findById(orderId)
+                        .orElseThrow();
+
+                // Modify the transaction's managed entity.
+                transition.accept(loaded);
+
+                // Both workers must finish reading and
+                // modifying BEFORE either can commit.
+                bothReady.countDown();
+
+                try {
+                    if (!releaseCommits.await(
+                            20, TimeUnit.SECONDS
+                    )) {
+                        throw new IllegalStateException(
+                                "Timed out waiting for commit barrier"
+                        );
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(
+                            "Transition interrupted", e
+                    );
+                }
+
+                // Force Hibernate's version-checked SQL
+                // UPDATE while this transaction is active.
+                entityManager.flush();
+            });
+
+            return null;
+
+        } catch (RuntimeException e) {
+            // Return the actual transactional failure
+            // so the test can inspect both worker results.
+            return e;
+        }
+    }
+
+    private boolean isOptimisticConflict(Throwable error) {
+        for (Throwable cause = error;
+             cause != null;
+             cause = cause.getCause()) {
+
+            if (cause instanceof OptimisticLockException
+                    || cause instanceof
+                    ObjectOptimisticLockingFailureException) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    @Test
+    void shouldNotCreateAnotherFailureEventWhenPaymentFailsAfterInventoryFailure() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservationFailedEvent inventoryFailure =
+                new InventoryReservationFailedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        "Insufficient stock"
+                );
+
+        PaymentFailedEvent paymentFailure =
+                new PaymentFailedEvent(
+                        EventMetadata.create("payment-service", 1),
+                        created.getId(),
+                        "Payment declined"
+                );
+
+        assertThat(inventoryFailure.metadata().eventId())
+                .isNotEqualTo(paymentFailure.metadata().eventId());
+
+        // ACT
+        boolean firstResult =
+                orderEventProcessor.processInventoryFailure(inventoryFailure);
+
+        boolean secondResult =
+                orderEventProcessor.processPaymentFailure(paymentFailure);
+
+        // ASSERT
+        assertThat(firstResult).isTrue();
+        assertThat(secondResult).isTrue();
+
+        List<OutboxEvent> failedEvents =
+                outboxEventRepository.findByAggregateId(created.getId())
+                        .stream()
+                        .filter(e -> "ORDER_FAILED".equals(e.getEventType()))
+                        .toList();
+
+        assertThat(failedEvents).hasSize(1);
+
+        assertThat(orderRepository.findById(created.getId())
+                .orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        // Both distinct incoming messages should be durably claimed.
+        assertThat(processedEventRepository.existsById(
+                inventoryFailure.metadata().eventId()
+        )).isTrue();
+
+        assertThat(processedEventRepository.existsById(
+                paymentFailure.metadata().eventId()
+        )).isTrue();
+    }
+
+    @Test
+    void shouldCreateOnlyOneFailureEventForDistinctPaymentFailureEventIds() {
+
+        // Arrange
+        Order created = orderService.create(order);
+
+        PaymentFailedEvent firstFailure = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                created.getId(),
+                "Payment declined"
+        );
+
+        PaymentFailedEvent secondFailure = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                created.getId(),
+                "Payment declined"
+        );
+
+        assertThat(firstFailure.metadata().eventId())
+                .isNotEqualTo(secondFailure.metadata().eventId());
+
+        // Act
+        boolean firstResult =
+                orderEventProcessor.processPaymentFailure(firstFailure);
+
+        boolean secondResult =
+                orderEventProcessor.processPaymentFailure(secondFailure);
+
+        // Assert
+        assertThat(firstResult).isTrue();
+        assertThat(secondResult).isTrue();
+
+        List<OutboxEvent> failureEvents =
+                outboxEventRepository.findByAggregateId(created.getId())
+                        .stream()
+                        .filter(event ->
+                                "ORDER_FAILED".equals(event.getEventType()))
+                        .toList();
+
+        assertThat(failureEvents).hasSize(1);
+
+        assertThat(orderRepository.findById(created.getId())
+                .orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void shouldCreateOnlyOneCompletionEventForDistinctIncomingEventIds() {
+
+        // ARRANGE: Persist a real Order and its creation outbox event.
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent firstEvent = new InventoryReservedEvent(
+                EventMetadata.create("inventory-service", 1),
+                created.getId(),
+                created.getProductId(),
+                created.getQuantity()
+        );
+
+        InventoryReservedEvent secondEvent = new InventoryReservedEvent(
+                EventMetadata.create("inventory-service", 1),
+                created.getId(),
+                created.getProductId(),
+                created.getQuantity()
+        );
+
+        // Different Kafka message identities.
+        assertThat(firstEvent.metadata().eventId())
+                .isNotEqualTo(secondEvent.metadata().eventId());
+
+        // ACT: Process both events in separate transactions.
+        boolean firstResult =
+                orderEventProcessor.processInventoryReserved(firstEvent);
+
+        boolean secondResult =
+                orderEventProcessor.processInventoryReserved(secondEvent);
+
+        // ASSERT: Characterize the current behaviour.
+        assertThat(firstResult).isTrue();
+
+        // The second event has a distinct eventId, so the
+        // idempotency claim succeeds even though the state
+        // transition is already complete.
+        assertThat(secondResult).isTrue();
+
+        List<OutboxEvent> completionEvents =
+                outboxEventRepository.findByAggregateId(created.getId())
+                        .stream()
+                        .filter(event ->
+                                "ORDER_COMPLETED".equals(event.getEventType()))
+                        .toList();
+
+        // Desired invariant: one business transition,
+        // one outgoing lifecycle event.
+        assertThat(completionEvents).hasSize(1);
+
+        assertThat(orderRepository.findById(created.getId())
+                .orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+
     }
 
     @Test

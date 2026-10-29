@@ -37,9 +37,9 @@ public class Order {
         this.status = OrderStatus.CREATED;
     }
 
-    public void markCompleted() {
+    public boolean markCompleted() {
         if (this.status == OrderStatus.COMPLETED) {
-            return;
+            return false;
         }
 
         if (this.status != OrderStatus.CREATED) {
@@ -49,11 +49,12 @@ public class Order {
         }
 
         this.status = OrderStatus.COMPLETED;
+        return true;
     }
 
-    public void markCancelled() {
+    public boolean markCancelled() {
         if (this.status == OrderStatus.CANCELLED) {
-            return;
+            return false;
         }
 
         if (this.status != OrderStatus.CREATED) {
@@ -63,6 +64,7 @@ public class Order {
         }
 
         this.status = OrderStatus.CANCELLED;
+        return true;
     }
 
 }
