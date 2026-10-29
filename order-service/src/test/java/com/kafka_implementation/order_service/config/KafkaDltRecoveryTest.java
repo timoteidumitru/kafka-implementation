@@ -1,5 +1,6 @@
 package com.kafka_implementation.order_service.config;
 
+import com.kafka_implementation.order_service.consumer.UnsupportedEventVersionException;
 import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -21,6 +22,81 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class KafkaDltRecoveryTest {
+
+    @Test
+    void shouldRecoverUnsupportedEventVersionWithoutRetries() {
+
+        // ARRANGE: Simulate a successful DLT publication.
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, Object> dltTemplate =
+                mock(KafkaTemplate.class);
+
+        @SuppressWarnings("unchecked")
+        SendResult<String, Object> sendResult =
+                mock(SendResult.class);
+
+        when(dltTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(sendResult)
+                );
+
+        // Use our actual production error-handler configuration.
+        DefaultErrorHandler handler =
+                new KafkaConsumerConfig().errorHandler(dltTemplate);
+
+        ConsumerRecord<String, Object> record =
+                new ConsumerRecord<>(
+                        "inventory.events.v1",
+                        0,
+                        42L,
+                        "order-42",
+                        "unsupported-version-event"
+                );
+
+        @SuppressWarnings("unchecked")
+        Consumer<String, Object> consumer =
+                mock(Consumer.class);
+
+        MessageListenerContainer container =
+                mock(MessageListenerContainer.class);
+
+        // Allow the recoverer to verify the DLT destination.
+        when(consumer.partitionsFor(
+                eq("inventory.events.v1.DLT"),
+                any(Duration.class)
+        )).thenReturn(List.of(
+                new PartitionInfo(
+                        "inventory.events.v1.DLT",
+                        0,
+                        null,
+                        null,
+                        null
+                )
+        ));
+
+        RuntimeException failure =
+                new UnsupportedEventVersionException(
+                        "Unsupported event version: 2"
+                );
+
+        // ACT: A non-retryable exception should enter DLT recovery
+        // on the first error-handler invocation.
+        boolean recovered = handler.handleOne(
+                failure,
+                record,
+                consumer,
+                container
+        );
+
+        // ASSERT
+        assertThat(recovered)
+                .as("Unsupported version must bypass processing retries")
+                .isTrue();
+
+        verify(dltTemplate, times(1))
+                .send(any(ProducerRecord.class));
+
+    }
 
     @Test
     void shouldSendUnsupportedInventoryEventToDltWithoutRetries() {

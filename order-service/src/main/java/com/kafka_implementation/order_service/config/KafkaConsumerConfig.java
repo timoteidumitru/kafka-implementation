@@ -1,6 +1,7 @@
 package com.kafka_implementation.order_service.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kafka_implementation.order_service.consumer.UnsupportedEventVersionException;
 import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
@@ -104,7 +105,8 @@ public class KafkaConsumerConfig {
         // Unsupported event types cannot become valid through retrying.
         // Preserve Spring Kafka's existing default fatal classifications.
         handler.addNotRetryableExceptions(
-                UnsupportedInventoryEventException.class
+                UnsupportedInventoryEventException.class,
+                UnsupportedEventVersionException.class
         );
 
         return handler;

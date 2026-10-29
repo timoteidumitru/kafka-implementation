@@ -18,10 +18,25 @@ public class OrderEventListener {
 
     private final OrderEventProcessor orderEventProcessor;
 
+    private static final int SUPPORTED_EVENT_VERSION = 1;
+
     public OrderEventListener(
             OrderEventProcessor orderEventProcessor
     ) {
         this.orderEventProcessor = orderEventProcessor;
+    }
+
+    private void validateSupportedVersion(DomainEvent event) {
+
+        if (event.getVersion() != SUPPORTED_EVENT_VERSION) {
+            throw new UnsupportedEventVersionException(
+                    "Unsupported event version: "
+                            + event.getVersion()
+                            + ", eventType=" + event.getEventType()
+                            + ", supportedVersion="
+                            + SUPPORTED_EVENT_VERSION
+            );
+        }
     }
 
     @KafkaListener(
@@ -29,6 +44,10 @@ public class OrderEventListener {
             groupId = "order-service"
     )
     public void onPaymentFailed(PaymentFailedEvent event) {
+
+        Objects.requireNonNull(event, "event must not be null");
+
+        validateSupportedVersion(event);
 
         MDC.put("eventId", event.metadata().eventId().toString());
         MDC.put("orderId", event.orderId().toString());
@@ -48,6 +67,8 @@ public class OrderEventListener {
     public void onInventoryEvent(DomainEvent event) {
 
         Objects.requireNonNull(event, "event must not be null");
+
+        validateSupportedVersion(event);
 
         MDC.put("eventId", event.metadata().eventId().toString());
         MDC.put("orderId", event.getAggregateId().toString());
@@ -74,4 +95,5 @@ public class OrderEventListener {
             MDC.remove("orderId");
         }
     }
+
 }
