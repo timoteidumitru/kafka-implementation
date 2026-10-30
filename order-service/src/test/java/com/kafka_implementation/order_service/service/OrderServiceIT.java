@@ -16,11 +16,11 @@ import com.kafka_implementation.order_service.repository.ProcessedEventRepositor
 import com.kafka_implementation.shared_events.base.EventMetadata;
 import com.kafka_implementation.shared_events.inventory.InventoryReservationFailedEvent;
 import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
+import com.kafka_implementation.shared_events.order.OrderCompletedEvent;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
+import com.kafka_implementation.shared_events.order.OrderFailedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -39,11 +39,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import org.mockito.stubbing.Answer;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.TransactionDefinition;
 import jakarta.persistence.OptimisticLockException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
 import java.util.concurrent.*;
@@ -147,6 +152,182 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldRollbackLosingClaimAndOutboxOnConcurrentTerminalTransitions()
+            throws Exception {
+
+        // ARRANGE: This creation commits before the workers begin.
+        Order created = orderService.create(order);
+        UUID orderId = created.getId();
+
+        InventoryReservedEvent inventorySuccess =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        orderId,
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        PaymentFailedEvent paymentFailure =
+                new PaymentFailedEvent(
+                        EventMetadata.create("payment-service", 1),
+                        orderId,
+                        "Payment declined"
+                );
+
+        UUID completionInputId =
+                inventorySuccess.metadata().eventId();
+
+        UUID failureInputId =
+                paymentFailure.metadata().eventId();
+
+        assertThat(completionInputId).isNotEqualTo(failureInputId);
+
+        CountDownLatch bothAtOutbox = new CountDownLatch(2);
+        CountDownLatch allowOutboxWrites = new CountDownLatch(1);
+
+        // Synchronize only the two terminal outgoing events.
+        // The initial ORDER_CREATED event has already been stored.
+        Answer<Object> terminalWriteBarrier = invocation -> {
+            bothAtOutbox.countDown();
+
+            try {
+                if (!allowOutboxWrites.await(20, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException(
+                            "Timed out waiting for outbox barrier"
+                    );
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Outbox barrier interrupted", e
+                );
+            }
+
+            return invocation.callRealMethod();
+        };
+
+        doAnswer(terminalWriteBarrier)
+                .when(outboxWriter)
+                .store(
+                        any(UUID.class),
+                        eq(ORDER_EVENTS_V1),
+                        any(OrderCompletedEvent.class)
+                );
+
+        doAnswer(terminalWriteBarrier)
+                .when(outboxWriter)
+                .store(
+                        any(UUID.class),
+                        eq(ORDER_EVENTS_V1),
+                        any(OrderFailedEvent.class)
+                );
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            // ACT: Each processor call has its own Spring transaction.
+            Future<Throwable> completion = executor.submit(() -> {
+                try {
+                    orderEventProcessor.processInventoryReserved(
+                            inventorySuccess
+                    );
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            Future<Throwable> cancellation = executor.submit(() -> {
+                try {
+                    orderEventProcessor.processPaymentFailure(
+                            paymentFailure
+                    );
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            // Neither worker can write its terminal outbox
+            // event until both have reached this point.
+            assertThat(bothAtOutbox.await(20, TimeUnit.SECONDS))
+                    .as("Both processors must reach the outbox barrier")
+                    .isTrue();
+
+            allowOutboxWrites.countDown();
+
+            Throwable completionError =
+                    completion.get(30, TimeUnit.SECONDS);
+
+            Throwable cancellationError =
+                    cancellation.get(30, TimeUnit.SECONDS);
+
+            // Exactly one full processor transaction succeeds.
+            int successful = (completionError == null ? 1 : 0)
+                    + (cancellationError == null ? 1 : 0);
+
+            assertThat(successful).isEqualTo(1);
+
+            Throwable losingError = completionError != null
+                    ? completionError
+                    : cancellationError;
+
+            assertThat(isOptimisticConflict(losingError))
+                    .as("Expected optimistic conflict, got: %s",
+                            losingError)
+                    .isTrue();
+
+            // ASSERT: Reload committed database state.
+            Order persisted = orderRepository.findById(orderId)
+                    .orElseThrow();
+
+            List<OutboxEvent> terminalEvents =
+                    outboxEventRepository.findByAggregateId(orderId)
+                            .stream()
+                            .filter(e ->
+                                    "ORDER_COMPLETED".equals(e.getEventType())
+                                            || "ORDER_FAILED".equals(e.getEventType()))
+                            .toList();
+
+            assertThat(terminalEvents)
+                    .as("Exactly one terminal outbox event must commit")
+                    .hasSize(1);
+
+            if (completionError == null) {
+                assertThat(persisted.getStatus())
+                        .isEqualTo(OrderStatus.COMPLETED);
+
+                assertThat(terminalEvents.get(0).getEventType())
+                        .isEqualTo("ORDER_COMPLETED");
+
+                assertThat(processedEventRepository.existsById(
+                        completionInputId)).isTrue();
+
+                assertThat(processedEventRepository.existsById(
+                        failureInputId)).isFalse();
+
+            } else {
+                assertThat(persisted.getStatus())
+                        .isEqualTo(OrderStatus.CANCELLED);
+
+                assertThat(terminalEvents.get(0).getEventType())
+                        .isEqualTo("ORDER_FAILED");
+
+                assertThat(processedEventRepository.existsById(
+                        failureInputId)).isTrue();
+
+                assertThat(processedEventRepository.existsById(
+                        completionInputId)).isFalse();
+            }
+
+        } finally {
+            // Prevent workers remaining blocked after an assertion.
+            allowOutboxWrites.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

@@ -1,1448 +1,284 @@
-# Order Service — Architecture Audit
+# Order Service — Architecture Audit & Implementation Ledger
 
-**Service:** `order-service`  
-**Phase:** Phase 0 — Architecture Audit  
-**Status:** Complete  
-**Purpose:** Record the current architecture, confirmed issues, improvement opportunities, and Phase 1 actions without implementing the fixes during the audit.
+**Repository:** `kafka-microservices` · **Module:** `order-service`  
+**Origin:** Phase 0 architecture audit (13 October 2026)  
+**Reconciled through:** Phase 1, CSA-04A.8 checkpoint (29 October 2026)  
+**Status:** Phase 0 audit complete; Phase 1 **in progress**; last full Order Service regression **GREEN: 122/122**  
+**Document purpose:** The single entry point for what was found, what was implemented, what was verified, and what must be done next. Do not treat old Phase 0 observations as descriptions of the current code without consulting the current-status column.
 
----
-
-# 1. Current Responsibility
-
-The Order Service is the main public business entry point for the ordering workflow.
-
-## Receives
-
-```text
-POST /api/orders
-```
-
-through the API Gateway.
-
-## Creates
-
-```text
-Order
-└── status = CREATED
-```
-
-and persists it in `orders_db`.
-
-## Produces
-
-```text
-order.events.v1
-
-├── OrderCreatedEvent
-├── OrderCompletedEvent
-└── OrderFailedEvent
-```
-
-## Consumes
-
-```text
-payment.events.v1
-└── PaymentFailedEvent
-
-inventory.events.v1
-├── InventoryReservedEvent
-└── InventoryReservationFailedEvent
-```
-
-## Simplified Current Flow
-
-```text
-Client
-  │
-  ▼
-API Gateway
-  │
-  ▼
-POST /api/orders
-  │
-  ▼
-OrderController
-  │
-  ▼
-OrderService
-  │
-  ▼
-orders_db
-  │
-  ▼
-OrderCreatedEvent
-  │
-  ▼
-Kafka
-```
-
-Subsequent events determine the final Order state.
-
-### Payment failure
-
-```text
-PaymentFailedEvent
-       │
-       ▼
-Order → CANCELLED
-       │
-       ▼
-OrderFailedEvent
-```
-
-### Inventory failure
-
-```text
-InventoryReservationFailedEvent
-       │
-       ▼
-Order → CANCELLED
-       │
-       ▼
-OrderFailedEvent
-```
-
-### Inventory success
-
-```text
-InventoryReservedEvent
-       │
-       ▼
-Order → COMPLETED
-       │
-       ▼
-OrderCompletedEvent
-```
+> **Evidence convention:** `VERIFIED` means confirmed by code shared in the review and/or a named successful test. `IMPLEMENTED / REVIEW` means an implementation is discussed or visible but its precise current production configuration was not re-audited in this reconciliation. `OPEN` means not shown resolved. `PARTIAL` means some aspects are verified but others remain. `BASELINE` refers to the October 13 Phase 0 snapshot, not necessarily the current source tree. Never turn a proposed design or passing test into a broader untested guarantee.
 
 ---
 
-# 2. KEEP — Existing Good Decisions
+## 0. Restart here — current status in one minute
 
-## Service Boundary
+- **Next active item:** `CSA-04A.8` — *processor-level concurrent transaction test*. The direct JPA optimistic-lock race is already GREEN; the full race through `OrderEventProcessor` with `processed_event` and `outbox_event` atomicity is **NOT YET TESTED**.
+- **Last full verification (29 Oct 2026):** `./mvnw.cmd -pl order-service -am clean verify` (Windows PowerShell: `.\mvnw.cmd`) — **57 unit tests + 65 integration tests = 122 passed**, zero failures, errors, skipped; reactor BUILD SUCCESS. This is the last confirmed complete suite, not a promise about later edits.
+- **Current verified improvements:** transactional event claim, at-most-once business transition for sequential duplicate outcomes, domain state machine, optimistic version checking, transactional outbox for creation and lifecycle events, outbox recovery/fencing tests, DLT/offset safety test coverage.
+- **Not established:** end-to-end exactly-once delivery (not claimed); complete processor-level concurrent rollback semantics; handling the losing conflicting event on retry; authoritative price validation; resolution of every Phase 0 configuration/security/serialization item.
+- **Audit hygiene:** retain historical findings with their original IDs, but work only from the **OPEN/PARTIAL** actions below. When closing an item, add code references, test names, regression command, date and suggested commit.
 
-- Order Service is the public business entry point for order creation.
-- `/api/orders` provides a clear API boundary.
-- Downstream business communication is asynchronous through Kafka.
-- Order Service owns its own database state.
-- Other internal services do not need direct REST access to Order for the currently audited workflow.
-
-## Domain Model
-
-- `Order` exists as a persistent aggregate/entity.
-- UUID is used as the Order identity.
-- New Orders explicitly begin with `CREATED`.
-- Lifecycle operations are represented through methods:
-  - `markCompleted()`
-  - `markCancelled()`
-- `OrderStatus` uses `EnumType.STRING`.
-- `OrderRepository` remains appropriately simple.
-
-## Event Architecture
-
-- Kafka records use `orderId` / aggregate ID as their key.
-- Events contain metadata.
-- `correlationId` is propagated across related events.
-- Event metadata contains:
-  - `eventId`
-  - `correlationId`
-  - `occurredAt`
-  - `sourceService`
-  - `version`
-- `OrderEventPublisher` provides an abstraction over `KafkaTemplate`.
-- Order Service publishes explicit lifecycle events:
-  - `OrderCreatedEvent`
-  - `OrderCompletedEvent`
-  - `OrderFailedEvent`
-
-## Reliability Foundation
-
-- Consumer idempotency has already been recognized as necessary.
-- `ProcessedEvent.eventId` provides database-level uniqueness.
-- `ErrorHandlingDeserializer` exists.
-- `DefaultErrorHandler` exists.
-- `DeadLetterPublishingRecoverer` exists.
-- Retry/backoff exists.
-- Consumer auto-commit is disabled.
-- Producer uses `acks=all`.
-- Listener concurrency is explicitly configured.
-- A DLT naming convention exists:
+### Current architecture (Phase 1 understanding)
 
 ```text
-<original-topic>.DLT
+POST /api/orders via API Gateway
+    -> OrderController / transactional Order creation
+    -> orders + outbox_event in same MySQL transaction
+    -> OutboxRelay / Kafka publisher -> order.events.v1
+
+payment.events.v1 / inventory.events.v1
+    -> OrderEventListener (Kafka adapter)
+    -> OrderEventProcessor (@Transactional)
+         -> IdempotencyGuard.tryClaim(eventId)  [processed_event]
+         -> OrderService.complete/cancel(orderId)
+         -> domain transition indicates changed / already terminal / invalid
+         -> OutboxWriter.store(lifecycleEvent) ONLY when changed
+    -> transaction commits claim + Order update + outgoing outbox together
+    -> relay publishes pending outbox records (at-least-once publication possible)
 ```
 
-## Observability
-
-Keep the existing project-level observability direction:
-
-- correlation IDs
-- event IDs in MDC/logging
-- MDC cleanup in `finally`
-- Actuator
-- Prometheus
-- distributed tracing
-- Zipkin
-- health endpoints
+**Important:** the above reflects reviewed application flow. Kafka topic processing order across different topics is not globally guaranteed. Incoming events that conflict with a committed terminal outcome need an explicit policy; no policy is asserted completed here.
 
 ---
 
-# 3. HIGH PRIORITY — Consumer Idempotency Transaction Boundary
+## 1. Phase 0 finding-to-Phase 1 status matrix
 
-Current `IdempotencyGuard` effectively performs:
+**Status meanings:** ✅ Verified resolved within stated scope · 🟡 Partial / verify remaining cases · ⬜ Open / not evidenced · 📌 Keep/monitor.
 
-```text
-incoming Kafka event
-       │
-       ▼
-existsById(eventId)
-       │
-       ▼
-ProcessedEvent INSERT
-       │
-       ▼
-business operation
-```
+| Phase 0 ID | Finding (preserved) | Current status | Verified evidence / remaining action |
+|---|---|---|---|
+| 03 | Consumer idempotency transaction boundary | ✅ **VERIFIED** | `OrderEventProcessor` transactional methods; `IdempotencyGuard` has `MANDATORY` propagation. `OrderServiceIT` tests rollback and claim reuse. |
+| 04 | Idempotency `exists`→`insert` race | ✅ **VERIFIED** | Atomic `INSERT IGNORE` to unique `processed_event.event_id`, strict warning classification; concurrent claim and cross-transaction tests; `IdempotencyGuardTest` warning tests. |
+| 05 | Different events race for same Order | 🟡 **PARTIAL** | `@Version` + domain transition rules; real MySQL simultaneous `COMPLETED` vs `CANCELLED` entity test GREEN. **Actual processor + claim/outbox race still pending.** |
+| 06 | Lifecycle DB/Kafka dual write | ✅ **VERIFIED** (DB/outbox atomicity) | Transactional outbox in Order Service, lifecycle-event rollback tests and outbox relay tests. **Kafka relay remains at-least-once.** |
+| 07 | Initial Order creation dual write | ✅ **VERIFIED** | Creation persists Order + `OrderCreatedEvent` outbox atomically; rollback test when outbox writing fails. |
+| 08 | Overlapping listener retry mechanisms | ⬜ **REVIEW CURRENT CONFIG** | Phase 0 saw Resilience4j `@Retry` plus Kafka handler. Do not assert removed without current listener/config inspection. |
+| 09 | Circuit-breaker fallback can swallow failures | 🟡 **PARTIAL** | DLT publication-failure recovery and Kafka offset-safety tests GREEN. Still inspect actual listener annotations/fallback and error propagation for all paths. |
+| 10 | Unrestricted Order state machine | ✅ **VERIFIED** | `CREATED -> COMPLETED/CANCELLED`; same-terminal no-op; opposite-terminal throws; `OrderTest`, integration tests. |
+| 11 | JPA `@Data` / entity encapsulation | ⬜ **VERIFY SOURCE** | Original risk persists unless `Order.java` accessors were deliberately constrained; no closure evidence captured. |
+| 12 | API request validation | ⬜ **OPEN / VERIFY** | Validate non-null IDs, positive quantity/price, `@Valid` and controller error contract; no verified closure. |
+| 13 | Client controls payment price | ⬜ **OPEN — HIGH RISK** | Do not accept client-supplied price as authoritative charge amount; decide trusted pricing policy/owner. |
+| 14 | Serializer / type-header mismatch | 🟡 **PARTIAL** | Inventory serialization and routing unit tests GREEN; full producer/consumer configuration consistency still requires audit. |
+| 15 | Multiple listeners on shared inventory topic | 🟡 **PARTIAL** | `OrderEventRoutingTest`, `OrderKafkaListenerIT` GREEN; confirm routing/consumer-group assumptions under production config. |
+| 16 | Failure classification | 🟡 **PARTIAL** | DLT, malformed/unsupported event and offset-safety coverage exists; complete classification table and Kafka retry policy still to confirm. |
+| 17 | Service outage vs consumer/DLT handling | 📌 **KEEP / MONITOR** | Kafka retains unconsumed records within retention; implement observable lag/backlog, DLT alarms and runbook. Not a code bug itself. |
+| 18 | Multiple Kafka configuration sources | ⬜ **OPEN / VERIFY** | Review Java bean config against YAML profiles (`local`, `docker`, `test`, resilience) for precedence and drift. |
+| 19 | Inconsistent Kafka bean names | ⬜ **OPEN / VERIFY** | Audit `KafkaProducerConfig`/`KafkaConsumerConfig`; rename leftover `inventory*` names only if still present. |
+| 20 | Shared ObjectMapper strategy | ⬜ **OPEN / VERIFY** | Keep `shared-events` framework-light; compare mapper configuration and polymorphic event compatibility. |
+| 21 | Scattered literal event versions | ⬜ **OPEN** | Prefer contract-owned version constants where useful; `next(metadata, "order-service", 1)` currently used. |
+| 22 | Unused request event contracts | ⬜ **OPEN / VERIFY** | Repository-wide usage check of `PaymentRequestedEvent` / `InventoryReserveRequestedEvent` before removal. |
+| 23 | DLT constants vs naming convention | ⬜ **OPEN / VERIFY** | Decide whether named constants or `.DLT` derivation is the source of truth. |
+| 24 | Business/operational observability | 🟡 **PARTIAL** | Tracing/MDC, Prometheus and health foundation present; define counters/gauges for Order lifecycle, DLT, consumer lag and outbox. |
+| 25 | Ordered Phase 1 implementation priorities | 📌 **TRACKING** | Replaced with active backlog and verification gates below; do not restart closed tasks. |
+| 26 | Avoid unnecessary new technologies | 📌 **KEEP** | No new service, saga framework, pessimistic lock, or redundant retry layer without justified need. |
 
-Example:
-
-```text
-InventoryReservedEvent
-       │
-       ▼
-ProcessedEvent saved
-       │
-       ▼
-orderService.complete()
-```
-
-This creates an important failure scenario.
-
-Suppose:
-
-```text
-ProcessedEvent INSERT     ✓
-orderService.complete()   ✗
-```
-
-The database can now contain:
-
-```text
-processed_events
-eventId=A
-```
-
-while:
-
-```text
-Order
-status=CREATED
-```
-
-If Kafka retries the event:
-
-```text
-alreadyProcessed(A)
-       │
-       ▼
-true
-       │
-       ▼
-return
-```
-
-The business operation can therefore remain incomplete.
-
-## Phase 1 Action
-
-Redesign the transaction boundary so the processed-event marker and relevant Order mutation participate in the appropriate atomic database transaction.
+**Phase 0 section 02 (“KEEP — existing good decisions”)** remains architectural context rather than an issue: Order is public write entry point, database-per-service, Kafka event metadata/correlation, versioned topics, DLT foundation, observability. **Phase 0 sections 27–28** remain conceptual lessons/conclusion and are updated in §§7–8 below.
 
 ---
 
-# 4. HIGH PRIORITY — Idempotency Race Condition
+## 2. Phase 1 implementation ledger — completed and evidence
 
-Current implementation uses:
+### CSA-04A — Order correctness and delivery reliability
 
-```text
-existsById(eventId)
-       │
-       ▼
-if false
-       │
-       ▼
-save(eventId)
-```
+| Work item | Implementation / decision | Verification | Status |
+|---|---|---|---|
+| Consumer atomicity | `OrderEventProcessor` is the transaction boundary; `IdempotencyGuard.tryClaim` joins existing transaction (`MANDATORY`). Claim, Order mutation, and outbox write commit/rollback together. | `OrderServiceIT.shouldAllowEventToBeClaimedAgainAfterRollback`, duplicate/redelivery tests, outbox-failure rollback tests. | ✅ Verified for tested paths |
+| Atomic event-ID dedup | MySQL uniqueness with `INSERT IGNORE`; distinguishes duplicate-key warning `1062` from unexpected SQL warnings; does **not** use unsafe `existsById` before insert. | `IdempotencyGuardTest` four warning-classification tests; `OrderServiceIT.shouldAllowOnlyOneConcurrentAtomicClaim`, `shouldAtomicallyClaimIncomingEventOnlyOnce`, `shouldEnforceUniqueProcessedEventIdAcrossTransactions`. | ✅ Verified |
+| Transactional outbox for creation | Order + outgoing created event saved in one local DB transaction; relay publishes independently. | `shouldRollbackOrderCreationWhenOutboxWritingFails` and existing outbox tests. | ✅ Verified for DB atomicity |
+| Transactional outbox for terminal outcomes | Order status mutation + `OrderCompletedEvent` / `OrderFailedEvent` outbox storage in one local transaction. | `shouldRollbackOrderAndOutboxWhenOutboxWritingFails`; relevant duplicate and relay tests. | ✅ Verified for tested paths |
+| Outbox relay/recovery/fencing | Dedicated `OutboxWriter`, `OutboxClaimService`, `OutboxKafkaPublisher`, `OutboxPublicationStateService`, `OutboxRecoveryService`, `OutboxRecoveryScheduler`, `OutboxRelay`; tests for claim/lease/recovery behavior. | `OutboxRelayTest`, `OutboxRecoveryScheduler*Test`, `OutboxKafkaPublisherTest`, service IT outbox lease/fencing cases. | ✅ Existing tested capability; operational review remains |
+| Domain invariants | `markCompleted()` / `markCancelled()` allow only transition from `CREATED`; same-target terminal returns no change; incompatible terminal state throws. | `OrderTest`, `OrderServiceIT` domain tests. | ✅ Verified |
+| Optimistic locking | `Order` has `@Version Long version`, detecting stale concurrent writes. | `shouldAllowOnlyOneConcurrentTerminalTransitionToCommit` (2 threads, distinct transactions, latch-coordinated reads/flush; MySQL GREEN). | ✅ Verified at entity/JPA layer |
+| **Business-effect idempotency** | Domain transition returns `boolean transitioned`; `OrderService.complete/cancel` propagate it; `OrderEventProcessor` stores lifecycle outbox event only if `transitioned=true`; incoming distinct event ID still claimed when same outcome already committed. | Characterization GREEN (two completion events), desired RED (expected one, got two), fixed GREEN `shouldCreateOnlyOneCompletionEventForDistinctIncomingEventIds`; `shouldCreateOnlyOneFailureEventForDistinctPaymentFailureEventIds`; `shouldNotCreateAnotherFailureEventWhenPaymentFailsAfterInventoryFailure`. | ✅ Verified sequential cases (29 Oct) |
+| Kafka DLT/offset resilience | Spring Kafka `DefaultErrorHandler`/recoverer tested for failure and retry behavior, including DLT publication failure and offset safety. | `KafkaDltRecoveryTest`, `OrderKafkaDltIT`, `OrderKafkaDltOffsetSafetyIT`, `OrderKafkaListenerIT`. | ✅ Test evidence; review retry-annotation policy |
+| Schema migrations | Flyway migration scripts `V1__create_order_service_schema.sql` and `V2__processed_event_timestamp_not_null.sql`; MySQL Testcontainers migration tests. | `FlywayChecksumIT`, `FlywayPartialMigrationIT`, full suite. | ✅ Verified migration test coverage |
 
-This is a check-then-act operation.
-
-Two concurrent executions can theoretically perform:
-
-```text
-Thread A                   Thread B
-
-exists? false              exists? false
-
-process                     process
-```
-
-The `eventId` primary-key constraint provides a final database-level uniqueness guarantee, but the application does not currently deliberately incorporate that uniqueness constraint into its processing semantics.
-
-## Important Lesson
-
-Idempotency is not simply:
+### Business-effect idempotency: exact tested contract
 
 ```text
-SELECT
-then
-INSERT
+1) Incoming eventId already claimed       -> processor returns false; no side effect.
+2) New eventId, Order CREATED             -> claim; transition; one lifecycle outbox event; return true.
+3) New eventId, same already terminal state -> claim; transition returns false; no new lifecycle outbox; return true.
+4) New eventId, incompatible terminal state -> exception; transaction rolls back claim and side effects.
 ```
 
-Database uniqueness should participate in the correctness guarantee.
+**Contract note:** `OrderEventProcessor`'s boolean reports that the incoming event was newly accepted/handled (`true`) versus duplicate event ID (`false`); it does **not** mean a state transition occurred. The internal `transitioned` boolean carries that distinction. Preserve this when refactoring listeners or tests.
 
-## Phase 1 Action
+**Consequence:** A distinct late failure event after a completed order, or late success after a cancelled order, is not a harmless same-state repeat. The domain currently rejects it. Kafka retry/DLT and reconciliation treatment of these **incompatible outcomes** remains an explicit open policy question; do not silently treat them as completed work.
 
-Redesign consumer idempotency to safely handle concurrent duplicate delivery.
+### Test outcomes — latest verified full regression
 
----
+Executed from repository root in Windows PowerShell on **29 October 2026**:
 
-# 5. HIGH PRIORITY — Idempotency Does Not Solve Order Concurrency
-
-A separate problem exists when **different events** target the same Order.
-
-Example:
-
-```text
-InventoryReservedEvent
-eventId=A
-orderId=123
+```powershell
+$log = Join-Path $env:TEMP "order-csa-04a8-verify.log"
+.\mvnw.cmd -pl order-service -am clean verify *> $log
+Select-String -Path $log -Pattern 'Tests run:|BUILD SUCCESS|BUILD FAILURE|Reactor Summary'
 ```
 
-and:
+| Suite | Count | Outcome |
+|---|---:|---|
+| Surefire unit tests | 57 | All PASS |
+| Failsafe integration tests | 65 | All PASS |
+| **Combined** | **122** | **0 failures, 0 errors, 0 skipped; BUILD SUCCESS** |
 
-```text
-PaymentFailedEvent
-eventId=B
-orderId=123
-```
+`OrderServiceIT`: **51** passing integration tests, including the four new CSA-04A.8 tests (distinct completion, distinct payment failure, cross-type failure, simultaneous entity state transition). Other integration tests: Kafka DLT IT 3, DLT offset safety IT 1, Kafka listener IT 4, Flyway checksum IT 1, Flyway partial migration IT 1, Order repository IT 4 (14 outside OrderServiceIT; total 65).
 
-Both event IDs are legitimate and unique.
+The `ERROR` log lines in `KafkaDltRecoveryTest` for simulated broker failures are expected **test-injected failures**, not suite failures; judge outcome by the test summaries.
 
-Therefore:
-
-```text
-idempotency(A) → allowed
-idempotency(B) → allowed
-```
-
-Two threads could potentially perform:
-
-```text
-Thread A                   Thread B
-
-read Order 123             read Order 123
-
-CREATED                    CREATED
-
-markCompleted()            markCancelled()
-
-save                       save
-```
-
-This can result in a race over the Order state.
-
-## Important Distinction
-
-```text
-IDEMPOTENCY
-"Have I already processed event A?"
-```
-
-is different from:
-
-```text
-CONCURRENCY CONTROL
-"Can two operations modify Order 123 simultaneously?"
-```
-
-## Phase 1 Action
-
-Evaluate optimistic locking, potentially using JPA `@Version`, together with explicit Order state-transition rules.
-
-Do not introduce pessimistic locking unless the use case demonstrates that it is necessary.
+**Do not use `122 passed` to claim that the full processor-level concurrency invariant has been verified.** That test is the next item.
 
 ---
 
-# 6. HIGH PRIORITY — Database/Kafka Dual Write
+## 3. Active engineering backlog — ranked, not already completed
 
-Order state changes and Kafka publication currently occur separately.
+### P0 — CSA-04A.8: processor-level concurrent transaction atomicity (**NEXT**)
 
-Example:
+**Goal:** Reproduce overlapping processing of two different events on the same Order with realistic transactional boundaries (e.g., inventory success vs payment failure), not merely overlapping direct entity modifications.
 
-```text
-orderService.complete()
-       │
-       ▼
-orders_db updated
-       │
-       ▼
-publisher.publishOrderCompleted()
-```
+**Required assertions after both transactions settle:**
 
-Possible failure:
+- Only one terminal Order state committed (`COMPLETED` or `CANCELLED`).
+- Exactly **one** corresponding terminal lifecycle event committed to `outbox_event` (ignore `ORDER_CREATED` in the count).
+- Winning incoming `eventId` persisted in `processed_event`.
+- Losing incoming `eventId` **not** persisted if its transaction failed and rolled back.
+- A deliberately observed losing optimistic-lock failure, not an accidental serialized execution, timeout, unrelated error, or unsupported state transition.
+- Retry/replay policy for the loser is analyzed separately. Under current domain rules, a retry encountering the opposite terminal state throws; determine whether to classify as non-recoverable, reconcile, or investigate an upstream invariant violation. Do not default to silent acknowledgement.
 
-```text
-orders_db update       ✓
-Kafka publication      ✗
-```
+**Test design:** two independent transactions, barriers at a test-scoped seam around the Order loading/transition stage, real `OrderEventProcessor` and `OutboxWriter`; keep production code free of test-only latches. Review existing `OrderServiceIT` test helpers before building new scaffolding. Verify MySQL transaction/flush order, and ensure a test does not deadlock by holding a shared key lock before reaching the barrier.
 
-Result:
+**Status:** ⬜ Not implemented/verified as of this checkpoint. **Gate to close CSA-04A.8:** focused processor race GREEN + full regression GREEN + documented losing-message policy or explicit deferred action.
 
-```text
-Order = COMPLETED
-```
+### P1 — Kafka failure semantics and listener configuration
 
-but:
+- Inspect current `OrderEventListener`, `KafkaConsumerConfig`, `application*.yml` and resilience profile; establish whether `@Retry`, `@CircuitBreaker`, `@Bulkhead` or fallbacks still wrap listener execution. The original Phase 0 snapshot observed overlapping retry and exception-swallowing risk; do not present these as current code facts until inspected.
+- Let retryable technical failures reach `DefaultErrorHandler`; verify DLT publication failure does not advance offsets (offset safety tests already exist).
+- Distinguish transient infrastructure failures, unsupported/deserialization errors, permanent business conflicts, and expected business failures. Decide retry limits/backoff/DLT mapping and document DLT replay/reconciliation.
+- Re-examine Kafka event routing/deserialization and exact consumer-group semantics across shared inventory topic. Existing integration tests are evidence for covered cases, not an all-configuration guarantee.
 
-```text
-OrderCompletedEvent = missing
-```
+### P1 — Public API and money/price correctness
 
-Downstream consumers can therefore disagree with the Order database.
+- Validate `CreateOrderRequest` with appropriate non-null / positive constraints; ensure `OrderController` invokes Bean Validation and returns consistent error responses.
+- **High-risk open issue:** client-provided price currently described in Phase 0 as the amount propagated toward payment. Require trusted price lookup or server-side price/amount verification before treating payment as production-ready. Do not add a pricing microservice by default.
 
-The same problem exists for:
+### P2 — Code quality / contract ownership / observability
 
-```text
-OrderFailedEvent
-```
-
-and the initial order creation workflow.
+- Verify whether Lombok `@Data` still exists on `Order` and whether setters permit bypassing the state machine.
+- Audit config ownership/bean names, `ObjectMapper` strategy, event version constants, unused `PaymentRequestedEvent`/`InventoryReserveRequestedEvent`, and DLT constants. Confirm usages before deleting or renaming anything.
+- Add appropriate counters/alerts for Order lifecycle outcomes, Kafka lag, retries, DLT records, outbox backlog, publication failures, stale claims and recovery latency. Review correlation/eventId/orderId MDC propagation and cleanup.
+- Test operator runbooks for outbox recovery, Kafka outage/consumer lag and DLT replay, including event ID preservation.
 
 ---
 
-# 7. HIGH PRIORITY — Initial Order Creation Dual Write
+## 4. Phase 0 baseline — original findings retained for historical interpretation
 
-Current controller performs:
+The original audit described the following problems **at the time of capture**; they should not be copied into a fresh review as though they still describe running code:
 
-```text
-OrderController
-       │
-       ▼
-orderService.create(order)
-       │
-       ▼
-publisher.publishOrderCreated(...)
-```
+- **03–04** `ProcessedEvent` save could precede business mutation, and `existsById`+`save` could race. **Now superseded** by transactional, atomic claim behavior.
+- **05** separate valid event IDs for the same Order could race. **Partially addressed** via `@Version` and domain rules, with processor-level concurrency still pending.
+- **06–07** database and Kafka publishing were separate, including creation. **Now superseded** by local transactional outbox. Relay publishing can still repeat after an uncertain send acknowledgment.
+- **08–09** overlapping Resilience4j retry / circuit-breaker fallback risked hiding exceptions from Kafka error handlers. **Needs current configuration audit**, not automatically closed by passing DLT tests.
+- **10** state changes previously allowed illegal terminal transitions. **Now fixed** by entity invariants.
+- **11–13** broad JPA setters, weak input validation and client-authoritative price. **Not verified as fixed**.
+- **14–16** event-type routing and failure classification. **Some coverage exists**, but design-wide audit remains.
+- **17–24** configuration, version/contract cleanup, DLT constants, and observability. **Still action items or monitoring**, subject to current source verification.
 
-Possible failure:
+**New finding raised during Phase 1 (not explicit in Phase 0): `P1-ORDER-01 — Business-effect idempotency`.** Even with atomic claims by `eventId` and a legal no-op state transition, a second **different incoming event ID** for the same already-finalized outcome previously emitted another outgoing event. Reproduced with characterization GREEN → desired RED (two completion outbox events where only one expected) → minimal code fix → GREEN. Similar cancellation cases also GREEN. This distinction is now part of the canonical checklist.
 
-```text
-Order INSERT           ✓
-OrderCreatedEvent      ✗
-```
-
-The Order now exists:
-
-```text
-status = CREATED
-```
-
-but Payment/Inventory may never receive the event required to continue the workflow.
-
-## Phase 1 Action
-
-Evaluate and implement the Transactional Outbox pattern.
-
-Conceptually:
-
-```text
-Database transaction
-       │
-       ├── save Order
-       │
-       └── save OutboxEvent
-               │
-               ▼
-            COMMIT
-```
-
-followed by reliable publication from the outbox.
-
-This should eventually cover both initial Order creation and subsequent Order lifecycle events.
+**Additional Phase 1 risk to track: `P1-ORDER-02 — Retry of incompatible terminal outcome`.** After an optimistic conflict, reprocessing against the now-finalized opposite outcome can throw a domain exception. The correct permanent/transient classification and reconciliation policy is **OPEN**, even though `@Version` prevents lost updates.
 
 ---
 
-# 8. HIGH PRIORITY — Overlapping Retry Mechanisms
-
-Current Kafka listeners use Resilience4j:
-
-```java
-@Retry(name = "order-kafka")
-```
-
-while Kafka configuration also contains:
-
-```java
-DefaultErrorHandler
-```
-
-with:
-
-```java
-FixedBackOff(...)
-```
-
-Therefore retry ownership is duplicated:
+## 5. Source ownership / map for future audits
 
 ```text
-Resilience4j Retry
-       +
-Spring Kafka Retry/Error Handler
+order-service/src/main/java/com/kafka_implementation/order_service/
+  controller/OrderController.java                # inbound REST adapter
+  domain/Order.java                              # state machine + @Version
+  domain/OrderStatus.java
+  domain/CreateOrderRequest.java
+  service/OrderService.java                      # transactional Order operations
+  service/OrderEventProcessor.java               # claim -> transition -> outbox
+  service/IdempotencyGuard.java                  # atomic processed_event claim
+  consumer/OrderEventListener.java               # inbound Kafka adapter
+  config/KafkaConsumerConfig.java
+  config/KafkaProducerConfig.java
+  config/ObjectMapperConfig.java
+  repository/OrderRepository.java
+  repository/ProcessedEventRepository.java
+  outbox/domain/OutboxEvent.java
+  outbox/repository/OutboxEventRepository.java
+  outbox/service/OutboxWriter.java
+  outbox/service/OutboxRelay.java
+  outbox/service/OutboxClaimService.java
+  outbox/service/OutboxKafkaPublisher.java
+  outbox/service/OutboxPublicationStateService.java
+  outbox/service/OutboxRecoveryService.java
+  outbox/service/OutboxRecoveryScheduler.java
+  resources/db/migration/V1__create_order_service_schema.sql
+  resources/db/migration/V2__processed_event_timestamp_not_null.sql
+
+order-service/src/test/java/com/kafka_implementation/order_service/
+  service/OrderServiceIT.java                    # MySQL/Testcontainers regressions
+  service/IdempotencyGuardTest.java
+  domain/OrderTest.java
+  consumer/OrderKafkaListenerIT.java
+  consumer/OrderKafkaDltIT.java
+  consumer/OrderKafkaDltOffsetSafetyIT.java
+  config/KafkaDltRecoveryTest.java
+  migration/FlywayChecksumIT.java
+  migration/FlywayPartialMigrationIT.java
 ```
 
-This makes the actual number and timing of attempts harder to reason about.
-
-## Phase 1 Direction
-
-Spring Kafka `DefaultErrorHandler` should primarily own Kafka record-processing retry/recovery.
-
-Do not stack retry mechanisms unless each one protects a clearly different operation.
+The directory tree shared on 29 October 2026 establishes these filenames, not the exact current contents of every file.
 
 ---
 
-# 9. HIGH PRIORITY — CircuitBreaker Fallback Can Hide Kafka Failures
+## 6. Next-session protocol — no duplicate investigations
 
-Current listener architecture contains:
+1. **Read this section and the status matrix before suggesting code changes.** Reuse all existing tests; do not re-propose the old `existsById` or dual-write fixes.
+2. Ask for current source **only for affected classes** if not already available, rather than another full module dump. For the next item, relevant files are `OrderServiceIT` concurrency helpers, `OrderEventProcessor`, `OrderService`, `OrderRepository`, transaction settings, and outbox repository/test setup.
+3. For each open finding use: **hypothesis → current source inspection → characterizing test if needed → RED invariant → smallest change → focused GREEN → full regression → audit status update**.
+4. Record **what the test really proved**. Separate event-ID idempotency, same-business-outcome idempotency, aggregate concurrency, domain validity, DB/outbox atomicity and at-least-once Kafka publication.
+5. At meaningful milestone completion, propose a concise Git commit message and update this file with commit hash if known. Do not claim a commit was executed by the assistant.
+6. Keep a dated verification entry including exact command and suite count. A failing new test after the 29 October checkpoint does not invalidate the historical GREEN result, but must update the **current** status.
 
-```java
-@CircuitBreaker(
-    name = "order-kafka",
-    fallbackMethod = "fallback"
-)
+### Suggested intermediate checkpoint (not claimed executed)
+
+```bash
+git status
+git diff --stat
+git add order-service
+# review staged changes before commit
+git diff --cached --stat
+git commit -m "fix(order): enforce lifecycle business idempotency and verify concurrency"
 ```
 
-with a fallback that logs the failure.
-
-Conceptually:
-
-```text
-Listener throws exception
-       │
-       ▼
-CircuitBreaker
-       │
-       ▼
-fallback()
-       │
-       ▼
-logs error
-       │
-       ▼
-returns normally
-```
-
-This can interfere with:
-
-```text
-DefaultErrorHandler
-       │
-       ▼
-retry
-       │
-       ▼
-DLT
-```
-
-because Kafka's infrastructure needs to observe processing failures in order to apply its recovery policy.
-
-## Phase 1 Action
-
-Remove/reconsider the Resilience4j fallback around Kafka listener processing.
-
-Kafka processing exceptions intended for retry/DLT handling must reach Spring Kafka.
+Prefer committing related code + tests together; exclude generated `target/` files and temporary logs.
 
 ---
 
-# 10. DOMAIN — Order State Machine
+## 7. Architecture principles to preserve
 
-Current states are:
-
-```text
-CREATED
-COMPLETED
-CANCELLED
-```
-
-and the entity provides:
-
-```java
-markCompleted()
-markCancelled()
-```
-
-but those methods currently change state without validating the previous state.
-
-This technically permits transitions such as:
-
-```text
-CREATED → COMPLETED
-CREATED → CANCELLED
-```
-
-which are expected, but potentially also:
-
-```text
-COMPLETED → CANCELLED
-CANCELLED → COMPLETED
-COMPLETED → COMPLETED
-CANCELLED → CANCELLED
-```
-
-## Phase 1 Action
-
-Define legitimate Order state transitions.
-
-Then enforce those transitions inside the domain model.
-
-Do not invent additional statuses simply to make the model look more sophisticated.
+- **Event-ID deduplication** answers whether a specific message was already handled.
+- **Business-effect idempotency** answers whether a different message would redundantly apply/publish the same business outcome.
+- **Domain state machine** rejects impossible transitions and allows deliberate same-terminal no-ops.
+- **Optimistic locking** prevents two stale versions of an aggregate from both committing conflicting updates.
+- **Transactional outbox** atomically persists local state and an *intent to publish*, not exactly-once Kafka delivery.
+- **Kafka retry/DLT ownership** must allow exceptions to reach the infrastructure and distinguish recoverable failures from permanent conflicts.
+- **Kafka key ordering** is within a partition, not across distinct topics or consumer groups.
+- Do not add a saga coordinator, 2PC, extra database, unnecessary producer abstraction, or new locking mechanism without evidence of need.
 
 ---
 
-# 11. DOMAIN — Entity Encapsulation
+## 8. Change log
+
+| Date | Change | Evidence |
+|---|---|---|
+| 13 Oct 2026 | Phase 0 `order-service.md` originally captured 26 audit observations, prioritized remediation and architecture lessons. | Original audit file supplied earlier. |
+| By 29 Oct 2026 | Phase 1 introduced/verifiably exercised atomic processed-event claims, transactional outbox, domain state rules, JPA optimistic locking, relay/recovery tests and migration tests. | Code reviews and named Order Service tests discussed in audit sessions. |
+| 29 Oct 2026 | `CSA-04A.8` identified distinct-event-ID duplicate lifecycle events; added transition-aware processor checks; verified completion and both same-type/cross-type cancellation cases. | GREEN/RED/GREEN workflow and new `OrderServiceIT` cases. |
+| 29 Oct 2026 | Verified direct concurrent `COMPLETED` vs `CANCELLED` optimistic locking using two transactions. | `shouldAllowOnlyOneConcurrentTerminalTransitionToCommit`. |
+| 29 Oct 2026 | Full suite verification after changes. | `57` Surefire + `65` Failsafe = `122` passed; `BUILD SUCCESS`. |
+| 29 Oct 2026 | Refactored audit from Phase 0-only snapshot into living Phase 0 → Phase 1 status ledger. | This document. |
 
-`Order` currently uses:
-
-```java
-@Data
-```
-
-Lombok therefore generates broad setters in addition to methods such as `equals()`, `hashCode()` and `toString()`.
-
-This weakens the intended domain API because code can potentially bypass:
-
-```java
-markCompleted()
-markCancelled()
-```
-
-and directly change fields.
-
-## Phase 1 Action
-
-Replace broad `@Data` usage on JPA entities with deliberately selected accessors where appropriate.
-
-Prefer state changes through meaningful domain operations.
-
----
-
-# 12. API — Request Validation
-
-Current request:
-
-```text
-CreateOrderRequest
-
-userId
-productId
-quantity
-price
-```
-
-does not currently show Bean Validation constraints.
-
-Potentially invalid requests include:
-
-```text
-userId = null
-productId = null
-quantity <= 0
-price <= 0
-```
-
-## Phase 1 Action
-
-Introduce validation appropriate to the actual business requirements, potentially including:
-
-```java
-@NotNull
-@Positive
-```
-
-and:
-
-```java
-@Valid
-```
-
-at the controller boundary.
-
----
-
-# 13. API / DOMAIN — Client Controls Price
-
-Current trust path is:
-
-```text
-Client
-  │
-  ▼
-CreateOrderRequest.price
-  │
-  ▼
-Order.price
-  │
-  ▼
-OrderCreatedEvent.price
-  │
-  ▼
-Payment Service
-  │
-  ▼
-amount charged
-```
-
-This means the client currently supplies the authoritative price.
-
-That is not an appropriate eventual production trust boundary.
-
-A client could conceptually submit:
-
-```text
-productId = expensive-product
-price = 0.01
-```
-
-## Phase 1 Action
-
-Design an authoritative pricing/amount-validation mechanism.
-
-Do not automatically introduce another microservice merely to solve this.
-
-The important architectural requirement is:
-
-```text
-Untrusted client
-       ≠
-authoritative payment amount
-```
-
----
-
-# 14. KAFKA — Event Serialization / Type Routing
-
-Producer configuration currently disables type headers:
-
-```java
-JsonSerializer.ADD_TYPE_INFO_HEADERS = false
-```
-
-while consumers use:
-
-```java
-JsonDeserializer<Object>
-```
-
-At the same time, individual topics can contain multiple concrete event classes.
-
-Example:
-
-```text
-inventory.events.v1
-
-├── InventoryReservedEvent
-└── InventoryReservationFailedEvent
-```
-
-Order Service then exposes typed listener methods for those concrete event classes.
-
-## Phase 1 Action
-
-Explicitly define the event serialization/type-routing strategy.
-
-Do not change serializer configuration in isolation.
-
-First decide how event contracts should be identified and dispatched.
-
----
-
-# 15. KAFKA — Multiple Listeners / Shared Topic
-
-Order Service contains separate listeners for:
-
-```text
-InventoryReservedEvent
-```
-
-and:
-
-```text
-InventoryReservationFailedEvent
-```
-
-while consuming the same inventory event topic/group relationship.
-
-The exact deserialization/routing behaviour should be verified rather than assumed.
-
-## Phase 1 Action
-
-Review this together with the broader event serialization/topic strategy.
-
----
-
-# 16. KAFKA — Failure Classification
-
-Current error handling broadly follows:
-
-```text
-processing failure
-       │
-       ▼
-retry
-       │
-       ▼
-retry
-       │
-       ▼
-retry
-       │
-       ▼
-DLT
-```
-
-However, not all failures should be treated identically.
-
-## Transient examples
-
-```text
-database temporarily unavailable
-temporary network problem
-temporary dependency outage
-```
-
-These may succeed later.
-
-## Non-Recoverable examples
-
-```text
-invalid payload
-unsupported event format
-deserialization failure
-permanently invalid data
-```
-
-Repeated immediate retry may provide little value.
-
-## Phase 1 Action
-
-Define explicit categories:
-
-```text
-TRANSIENT
-    ↓
-retry/recovery
-
-NON-RECOVERABLE
-    ↓
-DLT
-
-BUSINESS FAILURE
-    ↓
-business workflow/event
-```
-
-These concepts must remain separate.
-
----
-
-# 17. KAFKA — Service Outage Behaviour
-
-If Order Service itself is unavailable:
-
-```text
-Payment / Inventory
-       │
-       ▼
-Kafka
-       │
-       ▼
-topic partition
-       │
-       X
-Order Service DOWN
-```
-
-messages can remain in Kafka according to topic retention and capacity configuration.
-
-When Order Service returns, its consumer group can continue from committed progress.
-
-Therefore a temporary consumer outage does **not** inherently mean:
-
-```text
-everything → DLT
-```
-
-## Operational Improvement
-
-Eventually monitor:
-
-```text
-consumer lag
-retry activity
-DLT volume
-```
-
-to distinguish:
-
-```text
-consumer temporarily behind
-```
-
-from:
-
-```text
-records repeatedly failing processing
-```
-
----
-
-# 18. CONFIGURATION — Multiple Kafka Configuration Sources
-
-Kafka behaviour is configured across multiple locations, including explicit Java configuration and application configuration.
-
-This increases the risk of:
-
-```text
-duplicated properties
-conflicting defaults
-environment-specific surprises
-copy/paste mistakes
-```
-
-## Phase 1 Action
-
-Establish clear configuration ownership for:
-
-```text
-bootstrap servers
-consumer group
-serializers
-deserializers
-producer reliability
-listener concurrency
-retry/error handling
-```
-
-Prefer Spring Boot configuration where appropriate and retain explicit beans where custom behaviour is actually required.
-
----
-
-# 19. CONFIGURATION — Kafka Bean Naming
-
-Order Service currently contains Kafka bean names resembling:
-
-```text
-inventoryProducerFactory
-inventoryKafkaTemplate
-```
-
-inside Order Service configuration.
-
-These appear to be copy/paste residue.
-
-## Phase 1 Cleanup
-
-Rename beans consistently according to their actual responsibility.
-
----
-
-# 20. OBJECT MAPPER / SHARED EVENTS
-
-Current architecture contains:
-
-```text
-shared-events
-     │
-     ▼
-EventObjectMapperFactory
-```
-
-and each service contains a small Spring:
-
-```text
-ObjectMapperConfig
-```
-
-Do **not** move Spring `@Configuration` classes into `shared-events` merely to remove several lines of duplicated configuration.
-
-`shared-events` should remain framework-light.
-
-## Phase 1 Investigation
-
-Determine whether:
-
-```text
-EventObjectMapperFactory
-```
-
-is actually necessary.
-
-Spring Boot already manages an application `ObjectMapper`.
-
-The eventual solution may therefore be:
-
-```text
-use/configure Spring Boot ObjectMapper
-```
-
-rather than:
-
-```text
-move Spring configuration into shared-events
-```
-
-Resolve the Kafka serialization strategy before making this change.
-
----
-
-# 21. EVENT CONTRACT — Version Constants
-
-Some listeners currently contain:
-
-```java
-next(event.metadata(), "order-service", 1)
-```
-
-The literal:
-
-```text
-1
-```
-
-represents an event contract version.
-
-Scattering these literals makes version ownership harder to understand.
-
-`OrderCreatedEvent` already demonstrates a clearer pattern with:
-
-```java
-public static final int VERSION = 1;
-```
-
-## Phase 1 Action
-
-Review whether each versioned event contract should explicitly own its version constant.
-
----
-
-# 22. EVENT CONTRACT — Unused Requested Events
-
-During the `shared-events` audit, the following appeared unused:
-
-```text
-PaymentRequestedEvent
-InventoryReserveRequestedEvent
-```
-
-The currently audited Order workflow publishes:
-
-```text
-OrderCreatedEvent
-```
-
-and Payment reacts directly to it.
-
-## Phase 1 Cleanup
-
-Verify repository-wide usage.
-
-If genuinely unused and not part of the intended architecture, remove them rather than retaining dead event contracts.
-
----
-
-# 23. DLT Constants
-
-`shared-events` currently contains explicit constants such as:
-
-```text
-ORDER_EVENTS_V1_DLT
-PAYMENT_EVENTS_V1_DLT
-INVENTORY_EVENTS_V1_DLT
-```
-
-while the actual `DeadLetterPublishingRecoverer` derives DLT names dynamically:
-
-```java
-record.topic() + ".DLT"
-```
-
-This explains why IntelliJ currently shows no usages for those constants.
-
-## Phase 1 Cleanup
-
-Choose one clear source of truth.
-
-Either explicit DLT constants provide useful contract/documentation value, or the naming convention generates them dynamically.
-
-Avoid maintaining two representations without a reason.
-
----
-
-# 24. OBSERVABILITY IMPROVEMENTS
-
-Current observability direction should remain.
-
-Eventually add/monitor business and Kafka-specific signals such as:
-
-```text
-orders created
-orders completed
-orders cancelled
-
-Kafka consumer lag
-Kafka processing failures
-retry count
-DLT records
-outbox backlog
-outbox publication failures
-```
-
-This will make the local Docker environment behave more like an operational distributed system rather than simply a collection of running containers.
-
----
-
-# 25. PHASE 1 PRIORITY ORDER
-
-The Order Service should not be refactored randomly.
-
-Use the following sequence.
-
-## Priority 1 — Consumer Idempotency
-
-Fix:
-
-```text
-ProcessedEvent
-+
-Order mutation
-```
-
-transaction semantics.
-
-Address concurrent duplicate delivery.
-
----
-
-## Priority 2 — Transactional Outbox
-
-Protect:
-
-```text
-Order DB state
-+
-outgoing Kafka event
-```
-
-from dual-write inconsistency.
-
-Cover:
-
-```text
-Order creation
-Order completion
-Order cancellation/failure
-```
-
----
-
-## Priority 3 — Kafka Retry Ownership
-
-Make Spring Kafka the primary owner of Kafka record-processing recovery.
-
-Remove or justify overlapping:
-
-```text
-@Retry
-@CircuitBreaker
-@Bulkhead
-fallback
-```
-
----
-
-## Priority 4 — Failure Classification
-
-Separate:
-
-```text
-technical/transient failure
-
-non-recoverable event failure
-
-business failure
-```
-
-and define appropriate recovery/DLT behaviour.
-
----
-
-## Priority 5 — Event Serialization / Routing
-
-Resolve:
-
-```text
-JsonDeserializer<Object>
-type headers
-shared topics
-concrete event classes
-listener routing
-```
-
-as one design problem.
-
----
-
-## Priority 6 — Order State Machine
-
-Define and enforce legal Order transitions.
-
----
-
-## Priority 7 — Concurrent Order Updates
-
-Evaluate optimistic locking / JPA `@Version` together with state-transition enforcement.
-
----
-
-## Priority 8 — API Validation
-
-Protect:
-
-```text
-POST /api/orders
-```
-
-from invalid input.
-
----
-
-## Priority 9 — Price Trust Boundary
-
-Prevent the client from becoming the authoritative source of the amount eventually charged.
-
----
-
-## Priority 10 — Configuration Cleanup
-
-Clean up:
-
-```text
-Kafka configuration duplication
-Kafka bean naming
-ObjectMapper strategy
-event VERSION literals
-unused event contracts
-DLT constants
-```
-
----
-
-# 26. DO NOT ADD WITHOUT A CLEAR REQUIREMENT
-
-During Phase 1, avoid adding technologies merely because they appear in enterprise systems.
-
-Do not automatically add:
-
-- more Resilience4j annotations
-- pessimistic locking
-- additional microservices
-- a shared infrastructure/common module
-- complicated Order statuses
-- complicated Saga frameworks
-- extra Kafka topics without a routing requirement
-- new abstraction layers merely to reduce a few lines of duplication
-
-The objective is:
-
-```text
-correctness
-+
-maintainability
-+
-operability
-```
-
-not:
-
-```text
-maximum number of technologies
-```
-
----
-
-# 27. KEY ARCHITECTURAL LESSON FROM ORDER SERVICE
-
-The Order audit identified four different distributed-system correctness problems.
-
-They must not be confused.
-
-## Problem A — Duplicate Event
-
-```text
-same eventId
-delivered multiple times
-       │
-       ▼
-IDEMPOTENCY
-```
-
-## Problem B — Concurrent Aggregate Modification
-
-```text
-different eventIds
-same orderId
-processed concurrently
-       │
-       ▼
-CONCURRENCY CONTROL
-```
-
-## Problem C — Invalid State Transition
-
-```text
-Order currently COMPLETED
-
-new operation wants CANCELLED
-       │
-       ▼
-DOMAIN INVARIANT / STATE MACHINE
-```
-
-## Problem D — Database/Event Inconsistency
-
-```text
-DB commit succeeds
-
-Kafka publish fails
-       │
-       ▼
-TRANSACTIONAL OUTBOX
-```
-
-Therefore:
-
-```text
-Idempotency
-        ≠
-Concurrency control
-        ≠
-Domain state validation
-        ≠
-Outbox
-```
-
-Each mechanism solves a different problem.
-
----
-
-# 28. Overall Phase 0 Conclusion
-
-The Order Service has a sound high-level boundary:
-
-```text
-Client
-   │
-   ▼
-API Gateway
-   │
-   ▼
-Order Service
-   │
-   ├────► orders_db
-   │
-   ▼
-Kafka
-   │
-   ├────► Payment Service
-   │
-   └────► Inventory Service
-```
-
-The service already demonstrates useful distributed-system concepts:
-
-```text
-database-per-service
-
-Kafka asynchronous communication
-
-event-driven workflow
-
-event metadata
-
-correlation IDs
-
-idempotency awareness
-
-retry/DLT infrastructure
-
-service discovery
-
-observability
-```
-
-The primary weakness is **not a lack of technologies**.
-
-The important gaps concern the correctness of interactions between the technologies already present:
-
-```text
-transaction boundaries
-
-idempotency semantics
-
-DB/Kafka consistency
-
-concurrent aggregate updates
-
-domain invariants
-
-event serialization/routing
-
-failure classification
-
-recovery procedures
-```
-
-Therefore Phase 1 should strengthen the existing architecture rather than replace it.
-
-The progression should be:
-
-```text
-CURRENT
-
-DB + Kafka + retry + DLT + idempotency
-already exist
-
-              │
-              ▼
-
-PHASE 1
-
-make their interaction correct and explicit
-
-              │
-              ▼
-
-TARGET
-
-reliable event-driven Order Service
-
-with explicit:
-
-• consistency guarantees
-• idempotency semantics
-• concurrency handling
-• state transitions
-• retry ownership
-• failure classification
-• recovery procedures
-• observability
-```
-
----
