@@ -25,6 +25,27 @@ class OrderTest {
     }
 
     @Test
+    void shouldThrowSpecificExceptionWhenCancellingCompletedOrder() {
+        Order order = new Order(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                2,
+                new BigDecimal("19.99")
+        );
+
+        order.markCompleted();
+
+        assertThatThrownBy(order::markCancelled)
+                .isExactlyInstanceOf(
+                        InvalidOrderStateTransitionException.class
+                );
+
+        assertThat(order.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
     void shouldStartInCreatedStatus() {
 
         // Assert

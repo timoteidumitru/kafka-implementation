@@ -155,6 +155,61 @@ class OrderServiceIT {
     }
 
     @Test
+    void shouldRejectPaymentFailureAfterOrderCompletedWithoutSideEffects() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent inventorySuccess =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        orderEventProcessor.processInventoryReserved(inventorySuccess);
+
+        PaymentFailedEvent latePaymentFailure =
+                new PaymentFailedEvent(
+                        EventMetadata.create("payment-service", 1),
+                        created.getId(),
+                        "Payment declined"
+                );
+
+        // ACT: conflicting terminal transition
+        assertThatThrownBy(() ->
+                orderEventProcessor.processPaymentFailure(latePaymentFailure)
+        )
+                .isInstanceOf(IllegalStateException.class);
+
+        // ASSERT: committed business state is unchanged
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+
+        // Failed incoming event was not marked as processed.
+        assertThat(processedEventRepository.existsById(
+                latePaymentFailure.metadata().eventId()
+        )).isFalse();
+
+        // No contradictory ORDER_FAILED event was persisted.
+        List<OutboxEvent> terminalEvents =
+                outboxEventRepository.findByAggregateId(created.getId())
+                        .stream()
+                        .filter(e ->
+                                "ORDER_COMPLETED".equals(e.getEventType())
+                                        || "ORDER_FAILED".equals(e.getEventType()))
+                        .toList();
+
+        assertThat(terminalEvents)
+                .extracting(OutboxEvent::getEventType)
+                .containsExactly("ORDER_COMPLETED");
+    }
+
+    @Test
     void shouldRollbackLosingClaimAndOutboxOnConcurrentTerminalTransitions()
             throws Exception {
 

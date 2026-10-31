@@ -43,7 +43,7 @@ public class Order {
         }
 
         if (this.status != OrderStatus.CREATED) {
-            throw new IllegalStateException(
+            throw new InvalidOrderStateTransitionException(
                     "Cannot complete order from status: " + this.status
             );
         }
@@ -58,7 +58,7 @@ public class Order {
         }
 
         if (this.status != OrderStatus.CREATED) {
-            throw new IllegalStateException(
+            throw new InvalidOrderStateTransitionException(
                     "Cannot cancel order from status: " + this.status
             );
         }

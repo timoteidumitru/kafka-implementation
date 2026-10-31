@@ -2,11 +2,11 @@ package com.kafka_implementation.order_service.config;
 
 import com.kafka_implementation.order_service.consumer.UnsupportedEventVersionException;
 import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
+import com.kafka_implementation.order_service.domain.InvalidOrderStateTransitionException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.PartitionInfo;
-import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.MessageListenerContainer;
@@ -14,6 +14,7 @@ import org.springframework.kafka.support.SendResult;
 
 import java.time.Duration;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,6 +23,93 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class KafkaDltRecoveryTest {
+
+    @Test
+    void shouldSendInvalidOrderStateTransitionToDltWithoutRetries() {
+
+        // ARRANGE: the DLT producer successfully publishes.
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, Object> dltTemplate =
+                mock(KafkaTemplate.class);
+
+        @SuppressWarnings("unchecked")
+        SendResult<String, Object> sendResult =
+                mock(SendResult.class);
+
+        when(dltTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(sendResult)
+                );
+
+        // Use the actual production error-handler configuration.
+        DefaultErrorHandler handler =
+                new KafkaConsumerConfig().errorHandler(dltTemplate);
+
+        ConsumerRecord<String, Object> record =
+                new ConsumerRecord<>(
+                        "payment.events.v1",
+                        0,
+                        42L,
+                        "order-42",
+                        "payment-failed-event"
+                );
+
+        @SuppressWarnings("unchecked")
+        Consumer<String, Object> consumer =
+                mock(Consumer.class);
+
+        MessageListenerContainer container =
+                mock(MessageListenerContainer.class);
+
+        // Preserve the original partition on the DLT.
+        when(consumer.partitionsFor(
+                eq("payment.events.v1.DLT"),
+                any(Duration.class)
+        )).thenReturn(List.of(
+                new PartitionInfo(
+                        "payment.events.v1.DLT",
+                        0,
+                        null,
+                        null,
+                        null
+                )
+        ));
+
+        InvalidOrderStateTransitionException failure =
+                new InvalidOrderStateTransitionException(
+                        "Cannot cancel order from status: COMPLETED"
+                );
+
+        // ACT: first handler invocation.
+        boolean recovered = handler.handleOne(
+                failure,
+                record,
+                consumer,
+                container
+        );
+
+        // ASSERT: non-retryable domain conflict.
+        assertThat(recovered)
+                .as("Terminal-state conflicts must bypass processing retries")
+                .isTrue();
+
+        // DLT publication happens on the FIRST invocation,
+        // not after exhausting the three processing retries.
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<ProducerRecord<String, Object>> captor =
+                org.mockito.ArgumentCaptor.forClass(ProducerRecord.class);
+
+        verify(dltTemplate, times(1))
+                .send(captor.capture());
+
+        ProducerRecord<String, Object> published = captor.getValue();
+
+        assertThat(published.topic())
+                .isEqualTo("payment.events.v1.DLT");
+
+        assertThat(published.partition())
+                .isEqualTo(0);
+    }
 
     @Test
     void shouldRecoverUnsupportedEventVersionWithoutRetries() {

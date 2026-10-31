@@ -3,6 +3,7 @@ package com.kafka_implementation.order_service.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka_implementation.order_service.consumer.UnsupportedEventVersionException;
 import com.kafka_implementation.order_service.consumer.UnsupportedInventoryEventException;
+import com.kafka_implementation.order_service.domain.InvalidOrderStateTransitionException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -106,7 +107,8 @@ public class KafkaConsumerConfig {
         // Preserve Spring Kafka's existing default fatal classifications.
         handler.addNotRetryableExceptions(
                 UnsupportedInventoryEventException.class,
-                UnsupportedEventVersionException.class
+                UnsupportedEventVersionException.class,
+                InvalidOrderStateTransitionException.class
         );
 
         return handler;

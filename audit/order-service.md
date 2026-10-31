@@ -2,8 +2,8 @@
 
 **Repository:** `kafka-microservices` · **Module:** `order-service`  
 **Origin:** Phase 0 architecture audit (13 October 2026)  
-**Reconciled through:** Phase 1, CSA-04A.8 checkpoint (29 October 2026)  
-**Status:** Phase 0 audit complete; Phase 1 **in progress**; last full Order Service regression **GREEN: 122/122**  
+**Reconciled through:** Phase 1, CSA-04A.9 technical recovery completion (31 October 2026)  
+**Status:** Phase 0 audit complete; Phase 1 **in progress**; last full Order Service regression **GREEN: 127/127**  
 **Document purpose:** The single entry point for what was found, what was implemented, what was verified, and what must be done next. Do not treat old Phase 0 observations as descriptions of the current code without consulting the current-status column.
 
 > **Evidence convention:** `VERIFIED` means confirmed by code shared in the review and/or a named successful test. `IMPLEMENTED / REVIEW` means an implementation is discussed or visible but its precise current production configuration was not re-audited in this reconciliation. `OPEN` means not shown resolved. `PARTIAL` means some aspects are verified but others remain. `BASELINE` refers to the October 13 Phase 0 snapshot, not necessarily the current source tree. Never turn a proposed design or passing test into a broader untested guarantee.
@@ -12,10 +12,11 @@
 
 ## 0. Restart here — current status in one minute
 
-- **Next active item:** `CSA-04A.8` — *processor-level concurrent transaction test*. The direct JPA optimistic-lock race is already GREEN; the full race through `OrderEventProcessor` with `processed_event` and `outbox_event` atomicity is **NOT YET TESTED**.
-- **Last full verification (29 Oct 2026):** `./mvnw.cmd -pl order-service -am clean verify` (Windows PowerShell: `.\mvnw.cmd`) — **57 unit tests + 65 integration tests = 122 passed**, zero failures, errors, skipped; reactor BUILD SUCCESS. This is the last confirmed complete suite, not a promise about later edits.
-- **Current verified improvements:** transactional event claim, at-most-once business transition for sequential duplicate outcomes, domain state machine, optimistic version checking, transactional outbox for creation and lifecycle events, outbox recovery/fencing tests, DLT/offset safety test coverage.
-- **Not established:** end-to-end exactly-once delivery (not claimed); complete processor-level concurrent rollback semantics; handling the losing conflicting event on retry; authoritative price validation; resolution of every Phase 0 configuration/security/serialization item.
+- **Completed milestones:** `CSA-04A.8` — business-effect idempotency and processor-level concurrent transaction atomicity (30 Oct); `CSA-04A.9` — domain conflict exception, Kafka non-retryable classification, and real-broker listener-to-DLT recovery **VERIFIED GREEN** (31 Oct).
+- **Next active item:** `CSA-04A.10` — DLT reconciliation and safe replay: investigation, alerting, replay/compensation criteria and operator runbook. **OPEN**.
+- **Last full verification (31 Oct 2026):** Windows CMD `.\mvnw.cmd -pl order-service -am clean verify` — **59 unit tests + 68 integration tests = 127 passed**, zero failures, errors or skipped; reactor `BUILD SUCCESS`. This is the confirmed suite at this checkpoint, not a guarantee about later edits.
+- **Current verified improvements:** transactional event claim, business-effect idempotency, domain state machine, optimistic version checking, transactional outbox, outbox recovery/fencing, DLT/offset safety, **dedicated incompatible-transition exception**, non-retryable Kafka conflict classification, and real-broker payment DLT routing for a simulated processor conflict.
+- **Not established:** end-to-end exactly-once Kafka delivery; a single integration test combining *real database processor* with *real Kafka broker* for a conflict (these layers were tested separately); operator reconciliation/replay safety; complete production profile configuration audit; authoritative price validation; resolution of all Phase 0 issues.
 - **Audit hygiene:** retain historical findings with their original IDs, but work only from the **OPEN/PARTIAL** actions below. When closing an item, add code references, test names, regression command, date and suggested commit.
 
 ### Current architecture (Phase 1 understanding)
@@ -37,7 +38,7 @@ payment.events.v1 / inventory.events.v1
     -> relay publishes pending outbox records (at-least-once publication possible)
 ```
 
-**Important:** the above reflects reviewed application flow. Kafka topic processing order across different topics is not globally guaranteed. Incoming events that conflict with a committed terminal outcome need an explicit policy; no policy is asserted completed here.
+**Important:** the above reflects reviewed application flow. Kafka topic processing order across different topics is not globally guaranteed. Incompatible committed terminal outcomes now throw `InvalidOrderStateTransitionException`; the listener propagates it and the Kafka handler treats it as non-retryable, publishing to the appropriate `.DLT` when recovery succeeds. **DLT delivery does not reconcile the contradictory business outcome.**
 
 ---
 
@@ -49,18 +50,18 @@ payment.events.v1 / inventory.events.v1
 |---|---|---|---|
 | 03 | Consumer idempotency transaction boundary | ✅ **VERIFIED** | `OrderEventProcessor` transactional methods; `IdempotencyGuard` has `MANDATORY` propagation. `OrderServiceIT` tests rollback and claim reuse. |
 | 04 | Idempotency `exists`→`insert` race | ✅ **VERIFIED** | Atomic `INSERT IGNORE` to unique `processed_event.event_id`, strict warning classification; concurrent claim and cross-transaction tests; `IdempotencyGuardTest` warning tests. |
-| 05 | Different events race for same Order | 🟡 **PARTIAL** | `@Version` + domain transition rules; real MySQL simultaneous `COMPLETED` vs `CANCELLED` entity test GREEN. **Actual processor + claim/outbox race still pending.** |
+| 05 | Different events race for same Order | ✅ **VERIFIED** (DB atomicity) | `@Version` + domain transition rules; real MySQL entity race and real `OrderEventProcessor` race GREEN. Losing processed-event claim and terminal outbox write roll back. **Retry of contradictory event remains CSA-04A.9.** |
 | 06 | Lifecycle DB/Kafka dual write | ✅ **VERIFIED** (DB/outbox atomicity) | Transactional outbox in Order Service, lifecycle-event rollback tests and outbox relay tests. **Kafka relay remains at-least-once.** |
 | 07 | Initial Order creation dual write | ✅ **VERIFIED** | Creation persists Order + `OrderCreatedEvent` outbox atomically; rollback test when outbox writing fails. |
-| 08 | Overlapping listener retry mechanisms | ⬜ **REVIEW CURRENT CONFIG** | Phase 0 saw Resilience4j `@Retry` plus Kafka handler. Do not assert removed without current listener/config inspection. |
-| 09 | Circuit-breaker fallback can swallow failures | 🟡 **PARTIAL** | DLT publication-failure recovery and Kafka offset-safety tests GREEN. Still inspect actual listener annotations/fallback and error propagation for all paths. |
+| 08 | Overlapping listener retry mechanisms | 🟡 **PARTIAL** | Reviewed `OrderEventListener` has no `@Retry`, `@CircuitBreaker`, `@Bulkhead` or fallback; `KafkaConsumerConfig` installs `DefaultErrorHandler`. Still verify other profile/config layers before claiming full-system closure. |
+| 09 | Circuit-breaker fallback can swallow failures | 🟡 **PARTIAL** | Reviewed `OrderEventListener` propagates processor exceptions (MDC cleaned in `finally`); direct handler and real Kafka DLT tests GREEN. Profile-specific/wider configuration inspection still open. |
 | 10 | Unrestricted Order state machine | ✅ **VERIFIED** | `CREATED -> COMPLETED/CANCELLED`; same-terminal no-op; opposite-terminal throws; `OrderTest`, integration tests. |
 | 11 | JPA `@Data` / entity encapsulation | ⬜ **VERIFY SOURCE** | Original risk persists unless `Order.java` accessors were deliberately constrained; no closure evidence captured. |
 | 12 | API request validation | ⬜ **OPEN / VERIFY** | Validate non-null IDs, positive quantity/price, `@Valid` and controller error contract; no verified closure. |
 | 13 | Client controls payment price | ⬜ **OPEN — HIGH RISK** | Do not accept client-supplied price as authoritative charge amount; decide trusted pricing policy/owner. |
 | 14 | Serializer / type-header mismatch | 🟡 **PARTIAL** | Inventory serialization and routing unit tests GREEN; full producer/consumer configuration consistency still requires audit. |
 | 15 | Multiple listeners on shared inventory topic | 🟡 **PARTIAL** | `OrderEventRoutingTest`, `OrderKafkaListenerIT` GREEN; confirm routing/consumer-group assumptions under production config. |
-| 16 | Failure classification | 🟡 **PARTIAL** | DLT, malformed/unsupported event and offset-safety coverage exists; complete classification table and Kafka retry policy still to confirm. |
+| 16 | Failure classification | 🟡 **PARTIAL** | **CSA-04A.9 technical classification VERIFIED:** `InvalidOrderStateTransitionException` now non-retryable, alongside unsupported version/type; ordinary failures retain bounded retry in tested cases. Real Kafka test verifies immediate payment DLT delivery. Wider operational replay/reconciliation and profile review open. |
 | 17 | Service outage vs consumer/DLT handling | 📌 **KEEP / MONITOR** | Kafka retains unconsumed records within retention; implement observable lag/backlog, DLT alarms and runbook. Not a code bug itself. |
 | 18 | Multiple Kafka configuration sources | ⬜ **OPEN / VERIFY** | Review Java bean config against YAML profiles (`local`, `docker`, `test`, resilience) for precedence and drift. |
 | 19 | Inconsistent Kafka bean names | ⬜ **OPEN / VERIFY** | Audit `KafkaProducerConfig`/`KafkaConsumerConfig`; rename leftover `inventory*` names only if still present. |
@@ -89,8 +90,10 @@ payment.events.v1 / inventory.events.v1
 | Outbox relay/recovery/fencing | Dedicated `OutboxWriter`, `OutboxClaimService`, `OutboxKafkaPublisher`, `OutboxPublicationStateService`, `OutboxRecoveryService`, `OutboxRecoveryScheduler`, `OutboxRelay`; tests for claim/lease/recovery behavior. | `OutboxRelayTest`, `OutboxRecoveryScheduler*Test`, `OutboxKafkaPublisherTest`, service IT outbox lease/fencing cases. | ✅ Existing tested capability; operational review remains |
 | Domain invariants | `markCompleted()` / `markCancelled()` allow only transition from `CREATED`; same-target terminal returns no change; incompatible terminal state throws. | `OrderTest`, `OrderServiceIT` domain tests. | ✅ Verified |
 | Optimistic locking | `Order` has `@Version Long version`, detecting stale concurrent writes. | `shouldAllowOnlyOneConcurrentTerminalTransitionToCommit` (2 threads, distinct transactions, latch-coordinated reads/flush; MySQL GREEN). | ✅ Verified at entity/JPA layer |
+| **CSA-04A.8 — processor-level concurrent rollback** | Two distinct incoming event IDs race (`InventoryReservedEvent` vs `PaymentFailedEvent`) against one `CREATED` Order; `@SpyBean OutboxWriter` + two latches align the competing transactions at terminal outbox write without adding production hooks. Exactly one transaction commits; loser rolls back claim, Order mutation and outbox insert. | `OrderServiceIT.shouldRollbackLosingClaimAndOutboxOnConcurrentTerminalTransitions` — focused MySQL Testcontainers integration test GREEN (30 Oct 2026), followed by full suite GREEN. | ✅ **VERIFIED** for tested concurrent workflow |
 | **Business-effect idempotency** | Domain transition returns `boolean transitioned`; `OrderService.complete/cancel` propagate it; `OrderEventProcessor` stores lifecycle outbox event only if `transitioned=true`; incoming distinct event ID still claimed when same outcome already committed. | Characterization GREEN (two completion events), desired RED (expected one, got two), fixed GREEN `shouldCreateOnlyOneCompletionEventForDistinctIncomingEventIds`; `shouldCreateOnlyOneFailureEventForDistinctPaymentFailureEventIds`; `shouldNotCreateAnotherFailureEventWhenPaymentFailsAfterInventoryFailure`. | ✅ Verified sequential cases (29 Oct) |
 | Kafka DLT/offset resilience | Spring Kafka `DefaultErrorHandler`/recoverer tested for failure and retry behavior, including DLT publication failure and offset safety. | `KafkaDltRecoveryTest`, `OrderKafkaDltIT`, `OrderKafkaDltOffsetSafetyIT`, `OrderKafkaListenerIT`. | ✅ Test evidence; review retry-annotation policy |
+| **CSA-04A.9 — permanent domain conflicts** | `Order.markCompleted/markCancelled` throw `InvalidOrderStateTransitionException extends IllegalStateException` for incompatible terminal transitions. `KafkaConsumerConfig` classifies it non-retryable while retaining `FixedBackOff(1000L, 3L)` for ordinary retryable exceptions. Real listener routes simulated `PaymentFailedEvent` conflict to `payment.events.v1.DLT` on first processing attempt. | `OrderTest.shouldThrowSpecificExceptionWhenCancellingCompletedOrder`; `OrderServiceIT.shouldRejectPaymentFailureAfterOrderCompletedWithoutSideEffects`; `KafkaDltRecoveryTest.shouldSendInvalidOrderStateTransitionToDltWithoutRetries`; `OrderKafkaDltIT.shouldSendTerminalStateConflictToPaymentDltWithoutRetries`; complete 127-test regression (31 Oct). | ✅ **VERIFIED** for tested technical recovery paths; operational reconciliation OPEN |
 | Schema migrations | Flyway migration scripts `V1__create_order_service_schema.sql` and `V2__processed_event_timestamp_not_null.sql`; MySQL Testcontainers migration tests. | `FlywayChecksumIT`, `FlywayPartialMigrationIT`, full suite. | ✅ Verified migration test coverage |
 
 ### Business-effect idempotency: exact tested contract
@@ -104,56 +107,74 @@ payment.events.v1 / inventory.events.v1
 
 **Contract note:** `OrderEventProcessor`'s boolean reports that the incoming event was newly accepted/handled (`true`) versus duplicate event ID (`false`); it does **not** mean a state transition occurred. The internal `transitioned` boolean carries that distinction. Preserve this when refactoring listeners or tests.
 
-**Consequence:** A distinct late failure event after a completed order, or late success after a cancelled order, is not a harmless same-state repeat. The domain currently rejects it. Kafka retry/DLT and reconciliation treatment of these **incompatible outcomes** remains an explicit open policy question; do not silently treat them as completed work.
+**Consequence:** A distinct late failure event after a completed order, or late success after a cancelled order, is not a harmless same-state repeat. The domain rejects it with `InvalidOrderStateTransitionException`; the Kafka handler classifies that exception as non-retryable and routes to the source topic’s `.DLT` on successful recovery. **The operational decision to reconcile, compensate, or replay such events remains OPEN (`CSA-04A.10`).**
 
-### Test outcomes — latest verified full regression
+### Test outcomes — latest verified full regression (CSA-04A.9 technical work closed)
 
-Executed from repository root in Windows PowerShell on **29 October 2026**:
+Executed from repository root in **Windows Command Prompt (CMD)** on **31 October 2026**:
 
-```powershell
-$log = Join-Path $env:TEMP "order-csa-04a8-verify.log"
-.\mvnw.cmd -pl order-service -am clean verify *> $log
-Select-String -Path $log -Pattern 'Tests run:|BUILD SUCCESS|BUILD FAILURE|Reactor Summary'
+```bat
+.\mvnw.cmd -pl order-service -am clean verify > "%TEMP%\order-csa-04a9-final.log" 2>&1
+findstr /C:"Tests run:" /C:"BUILD SUCCESS" /C:"BUILD FAILURE" "%TEMP%\order-csa-04a9-final.log"
 ```
 
 | Suite | Count | Outcome |
 |---|---:|---|
-| Surefire unit tests | 57 | All PASS |
-| Failsafe integration tests | 65 | All PASS |
-| **Combined** | **122** | **0 failures, 0 errors, 0 skipped; BUILD SUCCESS** |
+| Surefire unit tests | 59 | All PASS |
+| Failsafe integration tests | 68 | All PASS |
+| **Combined** | **127** | **0 failures, 0 errors, 0 skipped; BUILD SUCCESS** |
 
-`OrderServiceIT`: **51** passing integration tests, including the four new CSA-04A.8 tests (distinct completion, distinct payment failure, cross-type failure, simultaneous entity state transition). Other integration tests: Kafka DLT IT 3, DLT offset safety IT 1, Kafka listener IT 4, Flyway checksum IT 1, Flyway partial migration IT 1, Order repository IT 4 (14 outside OrderServiceIT; total 65).
+`OrderServiceIT`: **53** passing integration tests (including the new late-conflict processor test). `OrderKafkaDltIT`: **4** integration tests (including simulated conflict routed through the real Kafka listener and broker). Other integration tests: DLT offset safety IT 1, Kafka listener IT 4, Flyway checksum IT 1, Flyway partial migration IT 1, Order repository IT 4 (**15** outside `OrderServiceIT`; **68** total). `KafkaDltRecoveryTest`: **6** passing unit tests; `OrderTest`: **8** passing unit tests.
 
-The `ERROR` log lines in `KafkaDltRecoveryTest` for simulated broker failures are expected **test-injected failures**, not suite failures; judge outcome by the test summaries.
+The `ERROR` stack traces in `KafkaDltRecoveryTest` for `Simulated DLT broker failure` and `DLT broker temporarily unavailable` are intentional test-injected failures. Both recovery-failure tests passed; judge the outcome by the Maven summary.
 
-**Do not use `122 passed` to claim that the full processor-level concurrency invariant has been verified.** That test is the next item.
+**Scope of verified guarantee:** `OrderServiceIT` proves DB state/claim/outbox rollback for a late conflict; `KafkaDltRecoveryTest` proves immediate handler recovery for the dedicated exception; `OrderKafkaDltIT` proves the real listener/consumer/broker publishes a *mock-processor-generated* conflict to `payment.events.v1.DLT` after one invocation. This is **not** one combined end-to-end real-database-and-real-Kafka test, proof of committed offsets for this exact new case, exactly-once Kafka delivery, or a reconciliation workflow.
 
 ---
 
 ## 3. Active engineering backlog — ranked, not already completed
 
-### P0 — CSA-04A.8: processor-level concurrent transaction atomicity (**NEXT**)
+### Closed — CSA-04A.8: business lifecycle idempotency and processor-level concurrency (30 Oct 2026)
 
-**Goal:** Reproduce overlapping processing of two different events on the same Order with realistic transactional boundaries (e.g., inventory success vs payment failure), not merely overlapping direct entity modifications.
+**Status:** ✅ COMPLETE for the tested database correctness and rollback invariants. Preserve these tests; do not re-open this item merely because recovery policy remains outstanding.
 
-**Required assertions after both transactions settle:**
+**Focused integration test:** `OrderServiceIT.shouldRollbackLosingClaimAndOutboxOnConcurrentTerminalTransitions` uses real `OrderEventProcessor` calls for a distinct inventory-success and payment-failure event on the same Order. Two independent threads reach a Mockito spy barrier at terminal outbox writes, then race. Assertions establish:
 
-- Only one terminal Order state committed (`COMPLETED` or `CANCELLED`).
-- Exactly **one** corresponding terminal lifecycle event committed to `outbox_event` (ignore `ORDER_CREATED` in the count).
-- Winning incoming `eventId` persisted in `processed_event`.
-- Losing incoming `eventId` **not** persisted if its transaction failed and rolled back.
-- A deliberately observed losing optimistic-lock failure, not an accidental serialized execution, timeout, unrelated error, or unsupported state transition.
-- Retry/replay policy for the loser is analyzed separately. Under current domain rules, a retry encountering the opposite terminal state throws; determine whether to classify as non-recoverable, reconcile, or investigate an upstream invariant violation. Do not default to silent acknowledgement.
+- Both processors reached the barrier after proposing conflicting transitions.
+- Exactly one processor transaction committed; the other failed with an optimistic-lock conflict.
+- Exactly one terminal Order state and matching terminal outbox event committed (plus the original `ORDER_CREATED` outbox event).
+- Winning event ID remained in `processed_event`; the losing claim did not survive rollback.
 
-**Test design:** two independent transactions, barriers at a test-scoped seam around the Order loading/transition stage, real `OrderEventProcessor` and `OutboxWriter`; keep production code free of test-only latches. Review existing `OrderServiceIT` test helpers before building new scaffolding. Verify MySQL transaction/flush order, and ensure a test does not deadlock by holding a shared key lock before reaching the barrier.
+**Verification:** focused GREEN on 30 Oct 2026, then full clean verify GREEN (**57 Surefire + 66 Failsafe = 123 passing**).
 
-**Status:** ⬜ Not implemented/verified as of this checkpoint. **Gate to close CSA-04A.8:** focused processor race GREEN + full regression GREEN + documented losing-message policy or explicit deferred action.
+**Boundary:** A later retry of the losing contradictory event is a separate business/recovery concern, tracked as `CSA-04A.9`. This test did not exercise a Kafka broker or a retried conflicting event.
 
-### P1 — Kafka failure semantics and listener configuration
+### Closed — CSA-04A.9: terminal-state conflicts and Kafka recovery classification (31 Oct 2026)
 
-- Inspect current `OrderEventListener`, `KafkaConsumerConfig`, `application*.yml` and resilience profile; establish whether `@Retry`, `@CircuitBreaker`, `@Bulkhead` or fallbacks still wrap listener execution. The original Phase 0 snapshot observed overlapping retry and exception-swallowing risk; do not present these as current code facts until inspected.
+**Status:** ✅ COMPLETE **for tested technical exception classification and listener-to-DLT behaviour**. Do not conflate this with operational reconciliation.
+
+- Domain: introduced `domain/InvalidOrderStateTransitionException.java` extending `IllegalStateException`; `Order.markCompleted()` and `markCancelled()` retain allowed transitions and idempotent same-state no-ops, while contradictory transitions throw the dedicated exception.
+- Processor characterization: `OrderServiceIT.shouldRejectPaymentFailureAfterOrderCompletedWithoutSideEffects` demonstrates a late `PaymentFailedEvent` after successful inventory completion: Order stays `COMPLETED`, conflicting processed-event claim is rolled back, no `ORDER_FAILED` outbox event is persisted.
+- Kafka: reviewed `OrderEventListener` contains no Resilience4j annotations/fallback; it delegates and propagates exceptions. `KafkaConsumerConfig` installs a `DefaultErrorHandler` with `FixedBackOff(1000L, 3L)` and marks incompatible terminal transitions plus unsupported event versions/types non-retryable.
+- Unit handler: `KafkaDltRecoveryTest.shouldSendInvalidOrderStateTransitionToDltWithoutRetries` verifies DLT recovery on first handler call, and existing retryable and DLT-send-failure tests still pass.
+- Real broker: `OrderKafkaDltIT.shouldSendTerminalStateConflictToPaymentDltWithoutRetries` publishes `PaymentFailedEvent`, mocks the processor to throw the domain exception, verifies one invocation, source metadata, and delivery to `payment.events.v1.DLT` using Testcontainers Kafka.
+- **Verification:** full `clean verify` on 31 Oct 2026, **59 unit + 68 integration = 127 passed**, `BUILD SUCCESS`.
+
+**Boundary:** `OrderKafkaDltIT` uses `@MockBean OrderEventProcessor`; it does not independently verify real DB rollback. The DB-backed test verifies that separately. Neither test defines DLT replay/compensation policy or guarantees a human/operator notices the record.
+
+### P0 — CSA-04A.10: DLT reconciliation and safe replay (**NEXT**)
+
+**Scenario:** a conflict record is safely preserved in `.DLT`, but replaying it against an unchanged terminal Order will reproduce the same contradiction. Decide whether it represents an obsolete event, incorrect upstream status, duplicate business action, or a real payment/inventory inconsistency.
+
+**Investigation gate:** define alert/ownership and record evidence (eventId, correlationId, orderId, topic/partition/offset, exception, timestamps); query authoritative Order/Payment/Inventory records before deciding compensation versus safe replay; preserve event identity and idempotency semantics. Document how to handle repeated DLT publication or recovery failure. Start with an operator runbook and targeted tests; do **not** auto-replay contradictory events or add a new service without evidence.
+
+**Status:** ⬜ OPEN — no reconciliation implementation or validated runbook yet.
+
+### P1 — Remaining Kafka listener/profile and failure-policy audit
+
+- **Reviewed:** current `OrderEventListener` has no `@Retry`, `@CircuitBreaker`, `@Bulkhead` or fallback; `KafkaConsumerConfig` installs the handler. **Remaining:** inspect `application*.yml`, resilience profile and any other wrappers/configuration before claiming system-wide closure.
 - Let retryable technical failures reach `DefaultErrorHandler`; verify DLT publication failure does not advance offsets (offset safety tests already exist).
-- Distinguish transient infrastructure failures, unsupported/deserialization errors, permanent business conflicts, and expected business failures. Decide retry limits/backoff/DLT mapping and document DLT replay/reconciliation.
+- **Tested:** supported domain conflicts, unsupported types/versions and generic retryable failures have distinct handler paths. **Remaining:** representative production infrastructure exception subclasses, complete classification matrix, profiles, replay/reconciliation runbook.
 - Re-examine Kafka event routing/deserialization and exact consumer-group semantics across shared inventory topic. Existing integration tests are evidence for covered cases, not an all-configuration guarantee.
 
 ### P1 — Public API and money/price correctness
@@ -175,17 +196,17 @@ The `ERROR` log lines in `KafkaDltRecoveryTest` for simulated broker failures ar
 The original audit described the following problems **at the time of capture**; they should not be copied into a fresh review as though they still describe running code:
 
 - **03–04** `ProcessedEvent` save could precede business mutation, and `existsById`+`save` could race. **Now superseded** by transactional, atomic claim behavior.
-- **05** separate valid event IDs for the same Order could race. **Partially addressed** via `@Version` and domain rules, with processor-level concurrency still pending.
+- **05** separate valid event IDs for the same Order could race. **Now verified for tested paths** using `@Version`, domain rules and a real concurrent `OrderEventProcessor` integration test; losing transaction rolls back its claim and outbox.
 - **06–07** database and Kafka publishing were separate, including creation. **Now superseded** by local transactional outbox. Relay publishing can still repeat after an uncertain send acknowledgment.
-- **08–09** overlapping Resilience4j retry / circuit-breaker fallback risked hiding exceptions from Kafka error handlers. **Needs current configuration audit**, not automatically closed by passing DLT tests.
+- **08–09** overlapping Resilience4j retry / circuit-breaker fallback risked hiding exceptions. **Reviewed listener is clean and propagates exceptions;** wider profiles/configuration remain to audit.
 - **10** state changes previously allowed illegal terminal transitions. **Now fixed** by entity invariants.
 - **11–13** broad JPA setters, weak input validation and client-authoritative price. **Not verified as fixed**.
-- **14–16** event-type routing and failure classification. **Some coverage exists**, but design-wide audit remains.
+- **14–16** event-type routing and failure classification. **CSA-04A.9 conflict classification and real Kafka DLT test GREEN;** broader producer/consumer profile audit and operational policies remain.
 - **17–24** configuration, version/contract cleanup, DLT constants, and observability. **Still action items or monitoring**, subject to current source verification.
 
 **New finding raised during Phase 1 (not explicit in Phase 0): `P1-ORDER-01 — Business-effect idempotency`.** Even with atomic claims by `eventId` and a legal no-op state transition, a second **different incoming event ID** for the same already-finalized outcome previously emitted another outgoing event. Reproduced with characterization GREEN → desired RED (two completion outbox events where only one expected) → minimal code fix → GREEN. Similar cancellation cases also GREEN. This distinction is now part of the canonical checklist.
 
-**Additional Phase 1 risk to track: `P1-ORDER-02 — Retry of incompatible terminal outcome`.** After an optimistic conflict, reprocessing against the now-finalized opposite outcome can throw a domain exception. The correct permanent/transient classification and reconciliation policy is **OPEN**, even though `@Version` prevents lost updates.
+**Additional Phase 1 finding: `P1-ORDER-02 / CSA-04A.9 — Retry of incompatible terminal outcome`.** After an optimistic conflict, a retry reading the opposite terminal state now throws `InvalidOrderStateTransitionException`, classified non-retryable and routed to `.DLT` in tested recovery scenarios. **Human/automated reconciliation and safe replay policy remains OPEN under `CSA-04A.10`.**
 
 ---
 
@@ -196,6 +217,7 @@ order-service/src/main/java/com/kafka_implementation/order_service/
   controller/OrderController.java                # inbound REST adapter
   domain/Order.java                              # state machine + @Version
   domain/OrderStatus.java
+  domain/InvalidOrderStateTransitionException.java # permanent conflicting lifecycle transition
   domain/CreateOrderRequest.java
   service/OrderService.java                      # transactional Order operations
   service/OrderEventProcessor.java               # claim -> transition -> outbox
@@ -237,24 +259,11 @@ The directory tree shared on 29 October 2026 establishes these filenames, not th
 ## 6. Next-session protocol — no duplicate investigations
 
 1. **Read this section and the status matrix before suggesting code changes.** Reuse all existing tests; do not re-propose the old `existsById` or dual-write fixes.
-2. Ask for current source **only for affected classes** if not already available, rather than another full module dump. For the next item, relevant files are `OrderServiceIT` concurrency helpers, `OrderEventProcessor`, `OrderService`, `OrderRepository`, transaction settings, and outbox repository/test setup.
+2. Ask for current source **only for affected classes** if not already available, rather than another full module dump. For next item (`CSA-04A.10`), start with existing DLT operations/replay handling, topic/retention/alert configuration and the event reconciliation ownership model; do not re-audit already verified handler classification.
 3. For each open finding use: **hypothesis → current source inspection → characterizing test if needed → RED invariant → smallest change → focused GREEN → full regression → audit status update**.
 4. Record **what the test really proved**. Separate event-ID idempotency, same-business-outcome idempotency, aggregate concurrency, domain validity, DB/outbox atomicity and at-least-once Kafka publication.
 5. At meaningful milestone completion, propose a concise Git commit message and update this file with commit hash if known. Do not claim a commit was executed by the assistant.
-6. Keep a dated verification entry including exact command and suite count. A failing new test after the 29 October checkpoint does not invalidate the historical GREEN result, but must update the **current** status.
-
-### Suggested intermediate checkpoint (not claimed executed)
-
-```bash
-git status
-git diff --stat
-git add order-service
-# review staged changes before commit
-git diff --cached --stat
-git commit -m "fix(order): enforce lifecycle business idempotency and verify concurrency"
-```
-
-Prefer committing related code + tests together; exclude generated `target/` files and temporary logs.
+6. Keep a dated verification entry including exact command and suite count. A failing new test after the 31 October checkpoint does not invalidate the historical GREEN result, but must update the **current** status.
 
 ---
 
@@ -265,7 +274,7 @@ Prefer committing related code + tests together; exclude generated `target/` fil
 - **Domain state machine** rejects impossible transitions and allows deliberate same-terminal no-ops.
 - **Optimistic locking** prevents two stale versions of an aggregate from both committing conflicting updates.
 - **Transactional outbox** atomically persists local state and an *intent to publish*, not exactly-once Kafka delivery.
-- **Kafka retry/DLT ownership** must allow exceptions to reach the infrastructure and distinguish recoverable failures from permanent conflicts.
+- **Kafka retry/DLT ownership** must allow exceptions to reach the infrastructure and distinguish recoverable failures from permanent conflicts; DLT preservation is not business reconciliation.
 - **Kafka key ordering** is within a partition, not across distinct topics or consumer groups.
 - Do not add a saga coordinator, 2PC, extra database, unnecessary producer abstraction, or new locking mechanism without evidence of need.
 
@@ -281,4 +290,8 @@ Prefer committing related code + tests together; exclude generated `target/` fil
 | 29 Oct 2026 | Verified direct concurrent `COMPLETED` vs `CANCELLED` optimistic locking using two transactions. | `shouldAllowOnlyOneConcurrentTerminalTransitionToCommit`. |
 | 29 Oct 2026 | Full suite verification after changes. | `57` Surefire + `65` Failsafe = `122` passed; `BUILD SUCCESS`. |
 | 29 Oct 2026 | Refactored audit from Phase 0-only snapshot into living Phase 0 → Phase 1 status ledger. | This document. |
-
+| 30 Oct 2026 | Completed `CSA-04A.8` processor-level concurrent transition verification with independent `OrderEventProcessor` calls; verified winning commit and losing claim/outbox rollback. | `shouldRollbackLosingClaimAndOutboxOnConcurrentTerminalTransitions` focused GREEN. |
+| 30 Oct 2026 | Full Order Service clean regression after processor concurrency test. | 57 Surefire + 66 Failsafe = **123 passed**, zero failures/errors/skipped, `BUILD SUCCESS`. |
+| 30 Oct 2026 | Closed CSA-04A.8 and promoted terminal-state conflicting-event recovery to next priority `CSA-04A.9`. | Audit status matrix and active backlog updated; policy remains OPEN. |
+| 31 Oct 2026 | `CSA-04A.9` introduced `InvalidOrderStateTransitionException`, classified terminal contradictions as non-retryable, and added domain, processor, handler and real-Kafka DLT tests. | Named `OrderTest`, `OrderServiceIT`, `KafkaDltRecoveryTest`, `OrderKafkaDltIT` checks passed. |
+| 31 Oct 2026 | Full Order Service clean regression and technical closure of `CSA-04A.9`; opened `CSA-04A.10` for operational reconciliation/safe replay. | **59 Surefire + 68 Failsafe = 127 passed**, zero failures/errors/skipped; `BUILD SUCCESS`. |

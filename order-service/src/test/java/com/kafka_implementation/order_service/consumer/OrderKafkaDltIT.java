@@ -2,9 +2,12 @@ package com.kafka_implementation.order_service.consumer;
 
 import com.kafka_implementation.order_service.config.KafkaConsumerConfig;
 import com.kafka_implementation.order_service.config.KafkaProducerConfig;
+import com.kafka_implementation.order_service.domain.InvalidOrderStateTransitionException;
 import com.kafka_implementation.order_service.service.OrderEventProcessor;
 import com.kafka_implementation.shared_events.base.DomainEvent;
 import com.kafka_implementation.shared_events.base.EventMetadata;
+import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -22,7 +25,6 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
-import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -38,15 +40,14 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import com.kafka_implementation.shared_events.inventory.InventoryReservedEvent;
 import org.springframework.kafka.support.serializer.JsonSerializer;
-
 
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.testcontainers.utility.DockerImageName;
+import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -93,6 +94,152 @@ class OrderKafkaDltIT {
 
     @Autowired
     private ObjectMapper mapper;
+
+    @Test
+    void shouldSendTerminalStateConflictToPaymentDltWithoutRetries()
+            throws Exception {
+
+        // ARRANGE
+        UUID orderId = UUID.randomUUID();
+        String key = orderId.toString();
+
+        PaymentFailedEvent event = new PaymentFailedEvent(
+                EventMetadata.create("payment-service", 1),
+                orderId,
+                "Payment declined"
+        );
+
+        // This IT isolates Kafka infrastructure.
+        // The processor mock simulates the domain rejecting
+        // a PaymentFailedEvent for an already COMPLETED Order.
+        doThrow(new InvalidOrderStateTransitionException(
+                "Cannot cancel order from status: COMPLETED"
+        )).when(processor).processPaymentFailure(eq(event));
+
+        Map<String, Object> producerConfig = Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                kafka.getBootstrapServers(),
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                StringSerializer.class,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                JsonSerializer.class
+        );
+
+        Map<String, Object> inspectorConfig = Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+                kafka.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG,
+                "payment-conflict-inspector-" + UUID.randomUUID(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+                "earliest",
+                ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+                StringDeserializer.class,
+                ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+                ByteArrayDeserializer.class
+        );
+
+        String paymentDlt = PAYMENT_EVENTS_V1 + ".DLT";
+        TopicPartition dltPartition =
+                new TopicPartition(paymentDlt, 0);
+
+        try (
+                KafkaProducer<String, DomainEvent> producer =
+                        new KafkaProducer<>(producerConfig);
+
+                KafkaConsumer<String, byte[]> inspector =
+                        new KafkaConsumer<>(inspectorConfig)
+        ) {
+
+            inspector.assign(List.of(dltPartition));
+            inspector.seekToBeginning(List.of(dltPartition));
+
+            ProducerRecord<String, DomainEvent> original =
+                    new ProducerRecord<>(
+                            PAYMENT_EVENTS_V1,
+                            0,
+                            key,
+                            event
+                    );
+
+            RecordMetadata originalMetadata =
+                    producer.send(original).get(15, TimeUnit.SECONDS);
+
+            // ACT: The real listener and DefaultErrorHandler
+            // should route the rejected event to the payment DLT.
+            ConsumerRecord<String, byte[]> recovered = null;
+
+            long deadline = System.nanoTime()
+                    + Duration.ofSeconds(30).toNanos();
+
+            while (System.nanoTime() < deadline && recovered == null) {
+                ConsumerRecords<String, byte[]> records =
+                        inspector.poll(Duration.ofMillis(500));
+
+                for (ConsumerRecord<String, byte[]> record : records) {
+                    if (key.equals(record.key())) {
+                        recovered = record;
+                        break;
+                    }
+                }
+            }
+
+            // ASSERT 1: The event reached the correct DLT.
+            assertThat(recovered)
+                    .as("Terminal conflict must reach payment DLT")
+                    .isNotNull();
+
+            assertThat(recovered.topic())
+                    .isEqualTo(paymentDlt);
+
+            assertThat(recovered.partition())
+                    .isEqualTo(originalMetadata.partition());
+
+            // ASSERT 2: The original event survived.
+            PaymentFailedEvent restored = mapper.readValue(
+                    recovered.value(),
+                    PaymentFailedEvent.class
+            );
+
+            assertThat(restored).isEqualTo(event);
+
+            // ASSERT 3: Spring Kafka preserved source metadata.
+            var topicHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_ORIGINAL_TOPIC
+            );
+
+            var offsetHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_ORIGINAL_OFFSET
+            );
+
+            assertThat(topicHeader).isNotNull();
+            assertThat(offsetHeader).isNotNull();
+
+            assertThat(new String(
+                    topicHeader.value(),
+                    StandardCharsets.UTF_8
+            )).isEqualTo(PAYMENT_EVENTS_V1);
+
+            assertThat(java.nio.ByteBuffer.wrap(
+                    offsetHeader.value()
+            ).getLong()).isEqualTo(originalMetadata.offset());
+
+            // ASSERT 4: Prove the failure was the domain conflict.
+            var stackTraceHeader = recovered.headers().lastHeader(
+                    KafkaHeaders.DLT_EXCEPTION_STACKTRACE
+            );
+
+            assertThat(stackTraceHeader).isNotNull();
+
+            assertThat(new String(
+                    stackTraceHeader.value(),
+                    StandardCharsets.UTF_8
+            )).contains("InvalidOrderStateTransitionException");
+
+            // ASSERT 5: No processing retries.
+            verify(processor, times(1))
+                    .processPaymentFailure(eq(event));
+        }
+    }
 
     @Test
     void shouldRejectUntrustedTypeHeaderAndPreservePayloadInDlt()
