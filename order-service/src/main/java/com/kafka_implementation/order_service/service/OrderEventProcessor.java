@@ -122,23 +122,4 @@ public class OrderEventProcessor {
         return true;
     }
 
-    @Transactional
-    public boolean processCancellation(UUID eventId, UUID orderId) {
-        if (!idempotencyGuard.tryClaim(eventId)) {
-            return false;
-        }
-
-        orderService.cancel(orderId);
-        return true;
-    }
-
-    @Transactional
-    public boolean processCompletion(UUID eventId, UUID orderId) {
-        if (!idempotencyGuard.tryClaim(eventId)) {
-            return false;
-        }
-
-        orderService.complete(orderId);
-        return true;
-    }
 }

@@ -50,6 +50,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import java.util.concurrent.*;
 import java.math.BigDecimal;
@@ -3127,17 +3128,29 @@ class OrderServiceIT {
     @Test
     void shouldProcessEventOnlyOnce() {
         Order created = orderService.create(order);
+
         UUID eventId = UUID.randomUUID();
 
-        boolean firstProcessing = orderEventProcessor.processCompletion(
+        EventMetadata metadata = new EventMetadata(
                 eventId,
-                created.getId()
+                UUID.randomUUID(),
+                Instant.now(),
+                "inventory-service",
+                1
         );
 
-        boolean secondProcessing = orderEventProcessor.processCompletion(
-                eventId,
-                created.getId()
+        InventoryReservedEvent event = new InventoryReservedEvent(
+                metadata,
+                created.getId(),
+                created.getProductId(),
+                created.getQuantity()
         );
+
+        boolean firstProcessing =
+                orderEventProcessor.processInventoryReserved(event);
+
+        boolean secondProcessing =
+                orderEventProcessor.processInventoryReserved(event);
 
         assertThat(firstProcessing).isTrue();
         assertThat(secondProcessing).isFalse();
@@ -3157,18 +3170,30 @@ class OrderServiceIT {
 
     @Test
     void shouldNotMarkEventProcessedWhenBusinessProcessingFails() {
+
         UUID eventId = UUID.randomUUID();
         UUID nonExistentOrderId = UUID.randomUUID();
 
+        EventMetadata metadata = new EventMetadata(
+                eventId,
+                UUID.randomUUID(),
+                Instant.now(),
+                "payment-service",
+                1
+        );
+
+        PaymentFailedEvent event = new PaymentFailedEvent(
+                metadata,
+                nonExistentOrderId,
+                "Simulated payment failure"
+        );
+
         assertThatThrownBy(() ->
-                orderEventProcessor.processCancellation(
-                        eventId,
-                        nonExistentOrderId
-                )
-        ).isInstanceOf(java.util.NoSuchElementException.class);
+                orderEventProcessor.processPaymentFailure(event)
+        ).isInstanceOf(NoSuchElementException.class);
 
         assertThat(processedEventRepository.existsById(eventId))
-                .as("Failed order processing must roll back the event claim")
+                .as("Failed processing must roll back the event claim")
                 .isFalse();
     }
 
