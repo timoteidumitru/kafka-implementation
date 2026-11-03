@@ -40,11 +40,9 @@ class ReplayPolicyTest {
     }
 
     @Test
-    void shouldResolveWithoutReplayWhenInventoryEventWasAlreadyProcessed() {
+    void shouldNotDeclareResolutionWithoutCausalEvidence() {
 
-        ReplayEvidence evidence = new ReplayEvidence(
-                true
-        );
+        ReplayEvidence evidence = new ReplayEvidence(true);
 
         ReplayDecision decision = policy.evaluate(
                 FailedEventType.INVENTORY_RESERVED,
@@ -53,7 +51,7 @@ class ReplayPolicyTest {
         );
 
         assertThat(decision)
-                .isEqualTo(ReplayDecision.RESOLVED_NO_REPLAY);
+                .isEqualTo(ReplayDecision.REQUIRES_INVESTIGATION);
     }
 
     @Test

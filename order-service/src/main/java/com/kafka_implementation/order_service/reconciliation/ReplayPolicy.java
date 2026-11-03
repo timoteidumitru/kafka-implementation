@@ -26,12 +26,11 @@ public final class ReplayPolicy {
         Objects.requireNonNull(currentStatus, "currentStatus");
         Objects.requireNonNull(evidence, "evidence");
 
-        if (evidence.originalEventCommitted()
-                && eventType == FailedEventType.INVENTORY_RESERVED
-                && currentStatus == OrderStatus.COMPLETED) {
-
-            return ReplayDecision.RESOLVED_NO_REPLAY;
-        }
+        // Current evidence is insufficient to establish
+        // that a failed event is safely resolved.
+        //
+        // Do not automatically authorise replay or
+        // declare reconciliation complete.
 
         return ReplayDecision.REQUIRES_INVESTIGATION;
     }

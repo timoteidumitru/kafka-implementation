@@ -20,6 +20,7 @@ import com.kafka_implementation.shared_events.order.OrderCompletedEvent;
 import com.kafka_implementation.shared_events.order.OrderCreatedEvent;
 import com.kafka_implementation.shared_events.order.OrderFailedEvent;
 import com.kafka_implementation.shared_events.payment.PaymentFailedEvent;
+import com.kafka_implementation.order_service.service.ProcessingOutcomeRecorder;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
@@ -82,7 +83,8 @@ import static org.mockito.Mockito.*;
         JacksonAutoConfiguration.class,
         MySQLTestConfiguration.class,
         OutboxClaimService.class,
-        OutboxRecoveryService.class
+        OutboxRecoveryService.class,
+        ProcessingOutcomeRecorder.class,
 })
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
@@ -153,6 +155,486 @@ class OrderServiceIT {
                 2,
                 new BigDecimal("19.99")
         );
+    }
+
+    @Test
+    void shouldPreserveUnknownOutcomeForHistoricalProcessedEvent() {
+
+        // ARRANGE:
+        // Simulate a record written by the pre-V3 implementation.
+        UUID historicalEventId = UUID.randomUUID();
+
+        ProcessedEvent historicalEvent = new ProcessedEvent(
+                historicalEventId,
+                Instant.now()
+        );
+
+        // Persist using the original entity mapping.
+        processedEventRepository.saveAndFlush(historicalEvent);
+
+        // ACT:
+        // Read the new column introduced by Flyway V3.
+        String outcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                historicalEventId.toString()
+        );
+
+        // ASSERT:
+        // The historical event claim is still present.
+        assertThat(processedEventRepository.existsById(historicalEventId))
+                .isTrue();
+
+        // Its outcome remains UNKNOWN rather than invented.
+        assertThat(outcome)
+                .isNull();
+    }
+
+    @Test
+    void shouldPreserveOriginalOutcomeOnDuplicateEventDelivery() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent incomingEvent =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        UUID incomingEventId =
+                incomingEvent.metadata().eventId();
+
+        // First delivery.
+        boolean firstProcessed =
+                orderEventProcessor.processInventoryReserved(
+                        incomingEvent
+                );
+
+        assertThat(firstProcessed).isTrue();
+
+        // Verify the original outcome.
+        String originalOutcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                incomingEventId.toString()
+        );
+
+        assertThat(originalOutcome)
+                .isEqualTo("TRANSITION_APPLIED");
+
+        // Count outgoing completion events before redelivery.
+        Long outboxCountBefore = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_event
+                WHERE aggregate_id = UUID_TO_BIN(?)
+                  AND event_type = 'ORDER_COMPLETED'
+                """,
+                Long.class,
+                created.getId().toString()
+        );
+
+        assertThat(outboxCountBefore).isEqualTo(1L);
+
+        // ACT: Deliver the EXACT SAME event again.
+        boolean secondProcessed =
+                orderEventProcessor.processInventoryReserved(
+                        incomingEvent
+                );
+
+        // ASSERT: Duplicate rejected.
+        assertThat(secondProcessed).isFalse();
+
+        // Original outcome must remain unchanged.
+        String outcomeAfterDuplicate = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                incomingEventId.toString()
+        );
+
+        assertThat(outcomeAfterDuplicate)
+                .isEqualTo("TRANSITION_APPLIED");
+
+        // No additional completion event.
+        Long outboxCountAfter = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_event
+                WHERE aggregate_id = UUID_TO_BIN(?)
+                  AND event_type = 'ORDER_COMPLETED'
+                """,
+                Long.class,
+                created.getId().toString()
+        );
+
+        assertThat(outboxCountAfter)
+                .isEqualTo(outboxCountBefore);
+
+        // Business state remains COMPLETED.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
+    void shouldRecordTransitionAppliedOutcomeForPaymentFailure() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        PaymentFailedEvent incomingEvent =
+                new PaymentFailedEvent(
+                        EventMetadata.create("payment-service", 1),
+                        created.getId(),
+                        "Payment declined"
+                );
+
+        UUID incomingEventId =
+                incomingEvent.metadata().eventId();
+
+        // ACT
+        boolean processed =
+                orderEventProcessor.processPaymentFailure(
+                        incomingEvent
+                );
+
+        // ASSERT: Event accepted.
+        assertThat(processed).isTrue();
+
+        // ASSERT: Order transitioned to CANCELLED.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        // ASSERT: Incoming event claim committed.
+        assertThat(processedEventRepository.existsById(incomingEventId))
+                .isTrue();
+
+        // NEW REQUIREMENT:
+        // The incoming payment-failure event has a durable outcome.
+        String outcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                incomingEventId.toString()
+        );
+
+        assertThat(outcome)
+                .isEqualTo("TRANSITION_APPLIED");
+    }
+
+    @Test
+    void shouldRecordTransitionAppliedOutcomeForInventoryFailure() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservationFailedEvent incomingEvent =
+                new InventoryReservationFailedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        "Insufficient stock"
+                );
+
+        UUID incomingEventId =
+                incomingEvent.metadata().eventId();
+
+        // ACT
+        boolean processed =
+                orderEventProcessor.processInventoryFailure(
+                        incomingEvent
+                );
+
+        // ASSERT: Event accepted.
+        assertThat(processed).isTrue();
+
+        // ASSERT: Order transitioned to CANCELLED.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+
+        // ASSERT: Incoming event claim committed.
+        assertThat(processedEventRepository.existsById(incomingEventId))
+                .isTrue();
+
+        // NEW REQUIREMENT:
+        // Record the outcome of the incoming event.
+        String outcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                incomingEventId.toString()
+        );
+
+        assertThat(outcome)
+                .isEqualTo("TRANSITION_APPLIED");
+    }
+
+    @Test
+    void shouldRollbackClaimOutcomeOrderAndOutboxTogether() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent incomingEvent =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        UUID incomingEventId =
+                incomingEvent.metadata().eventId();
+
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+
+        // ACT:
+        // Execute the event processor inside an outer transaction.
+        // Fail AFTER processing has completed, but BEFORE commit.
+        assertThatThrownBy(() ->
+                transaction.executeWithoutResult(status -> {
+
+                    boolean processed =
+                            orderEventProcessor.processInventoryReserved(
+                                    incomingEvent
+                            );
+
+                    assertThat(processed).isTrue();
+
+                    // Force pending JPA changes to MySQL.
+                    entityManager.flush();
+
+                    // Verify the claim exists within this transaction.
+                    assertThat(
+                            processedEventRepository.existsById(incomingEventId)
+                    ).isTrue();
+
+                    // Verify the outcome was written.
+                    String outcome = jdbcTemplate.queryForObject(
+                            """
+                            SELECT outcome
+                            FROM processed_event
+                            WHERE event_id = UUID_TO_BIN(?)
+                            """,
+                            String.class,
+                            incomingEventId.toString()
+                    );
+
+                    assertThat(outcome)
+                            .isEqualTo("TRANSITION_APPLIED");
+
+                    // Simulate a failure immediately before commit.
+                    throw new IllegalStateException(
+                            "Simulated failure before transaction commit"
+                    );
+                })
+        ).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Simulated failure before transaction commit");
+
+        // ASSERT:
+        // The processed-event claim must have rolled back.
+        assertThat(processedEventRepository.existsById(incomingEventId))
+                .isFalse();
+
+        // The Order must retain its last committed state.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.CREATED);
+
+        // No completion event should survive in the outbox.
+        Long completionCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_event
+                WHERE aggregate_id = UUID_TO_BIN(?)
+                  AND event_type = 'ORDER_COMPLETED'
+                """,
+                Long.class,
+                created.getId().toString()
+        );
+
+        assertThat(completionCount)
+                .isZero();
+    }
+
+    @Test
+    void shouldRecordNoOpOutcomeWithoutDuplicateCompletionEvent() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent firstEvent =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        // First event completes the Order.
+        boolean firstProcessed =
+                orderEventProcessor.processInventoryReserved(firstEvent);
+
+        assertThat(firstProcessed).isTrue();
+
+        // A DIFFERENT incoming event for the same Order.
+        InventoryReservedEvent secondEvent =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        UUID secondEventId = secondEvent.metadata().eventId();
+
+        assertThat(secondEventId)
+                .isNotEqualTo(firstEvent.metadata().eventId());
+
+        // Count existing ORDER_COMPLETED outbox events.
+        Long completionCountBefore = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_event
+                WHERE aggregate_id = UUID_TO_BIN(?)
+                  AND event_type = 'ORDER_COMPLETED'
+                """,
+                Long.class,
+                created.getId().toString()
+        );
+
+        assertThat(completionCountBefore).isEqualTo(1L);
+
+        // ACT
+        boolean secondProcessed =
+                orderEventProcessor.processInventoryReserved(secondEvent);
+
+        // ASSERT: A distinct event was accepted.
+        assertThat(secondProcessed).isTrue();
+
+        // The second event has its own committed claim.
+        assertThat(processedEventRepository.existsById(secondEventId))
+                .isTrue();
+
+        // Its outcome must describe the actual behaviour.
+        String outcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                secondEventId.toString()
+        );
+
+        assertThat(outcome)
+                .isEqualTo("ALREADY_IN_TARGET_STATE");
+
+        // No additional OrderCompletedEvent should be created.
+        Long completionCountAfter = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_event
+                WHERE aggregate_id = UUID_TO_BIN(?)
+                  AND event_type = 'ORDER_COMPLETED'
+                """,
+                Long.class,
+                created.getId().toString()
+        );
+
+        assertThat(completionCountAfter)
+                .isEqualTo(completionCountBefore);
+
+        // The original business state remains unchanged.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
+    void shouldRecordTransitionAppliedOutcomeForInventorySuccess() {
+
+        // ARRANGE
+        Order created = orderService.create(order);
+
+        InventoryReservedEvent incomingEvent =
+                new InventoryReservedEvent(
+                        EventMetadata.create("inventory-service", 1),
+                        created.getId(),
+                        created.getProductId(),
+                        created.getQuantity()
+                );
+
+        UUID incomingEventId =
+                incomingEvent.metadata().eventId();
+
+        // ACT
+        boolean processed =
+                orderEventProcessor.processInventoryReserved(
+                        incomingEvent
+                );
+
+        // ASSERT: The event was accepted.
+        assertThat(processed).isTrue();
+
+        // ASSERT: The business transition committed.
+        Order persisted = orderRepository.findById(created.getId())
+                .orElseThrow();
+
+        assertThat(persisted.getStatus())
+                .isEqualTo(OrderStatus.COMPLETED);
+
+        // ASSERT: The incoming event claim committed.
+        assertThat(processedEventRepository.existsById(incomingEventId))
+                .isTrue();
+
+        // NEW REQUIREMENT:
+        // The incoming event's processing outcome must be durable.
+        String outcome = jdbcTemplate.queryForObject(
+                """
+                SELECT outcome
+                FROM processed_event
+                WHERE event_id = UUID_TO_BIN(?)
+                """,
+                String.class,
+                incomingEventId.toString()
+        );
+
+        assertThat(outcome)
+                .isEqualTo("TRANSITION_APPLIED");
     }
 
     @Test
